@@ -42,6 +42,9 @@ SAMPLE=[
 ("Events","No upcoming events have been published in this demo.","Events calendar"),
 ("Contact","Contact the school office between 9 AM and 4 PM on weekdays.","School handbook")]
 def db():
+    if database_config.backend()=="postgres":
+        from .postgres_adapter import connect
+        return connect(os.environ["SCHOOL_POSTGRES_DSN"])
     c=sqlite3.connect(DB,timeout=10);c.row_factory=sqlite3.Row;c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA busy_timeout=10000');return c
 def records_for_index():
     with db() as c:
@@ -102,7 +105,12 @@ def startup():
     database_config.validate_configuration()
     if os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
         raise RuntimeError("SQLite production mode is disabled until PostgreSQL migration is complete")
-    setup()
+    if database_config.backend()=="postgres":
+        from scripts.postgres_bootstrap import validate
+        validate(os.environ["SCHOOL_POSTGRES_DSN"])
+        # PostgreSQL schema is managed externally; never execute SQLite DDL or seed data.
+    else:
+        setup()
     rebuild_index()
 class Item(BaseModel):
     topic:str=Field(min_length=2,max_length=100)
