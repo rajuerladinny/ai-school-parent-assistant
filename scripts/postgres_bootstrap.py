@@ -9,7 +9,7 @@ from pathlib import Path
 SCHEMA=Path(__file__).resolve().parents[1]/"migrations"/"postgresql"/"001_initial.sql"
 REQUIRED=("schools","parent_accounts","parent_sessions","knowledge","documents",
           "policy_versions","escalations","escalation_events","parent_notification_reads",
-          "knowledge_conflicts")
+          "knowledge_conflicts","staff_accounts","staff_sessions")
 
 
 def validate(dsn):
