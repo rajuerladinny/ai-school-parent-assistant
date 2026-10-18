@@ -15,12 +15,12 @@ TABLES={
     "documents":("id","school_id","filename","title","content","uploaded_at","active"),
     "policy_versions":("id","school_id","policy_key","version","title","filename","content","status","effective_date","created_at","reviewed_at"),
     "staff_accounts":("id","school_id","username","display_name","salt","password_hash","role","enabled","created_at"),
-    "staff_sessions":("token_hash","staff_id","expires_at"),
-    "parent_sessions":("token_hash","parent_id","expires_at"),
     "escalations":("id","school_id","parent_id","question","status","assigned_to","resolution","created_at","updated_at","resolved_at"),
     "escalation_events":("id","escalation_id","action","detail","created_at"),
     "knowledge_conflicts":("id","policy_id","legacy_type","legacy_id","status","created_at","resolved_at"),
     "parent_notification_reads":("parent_id","policy_id","read_at"),
+    "parent_sessions":("token_hash","parent_id","expires_at"),
+    "staff_sessions":("token_hash","staff_id","expires_at"),
 }
 
 
@@ -50,6 +50,8 @@ def migrate(source_path, target_dsn, *, dry_run=True):
                     if cur.fetchone()[0]:
                         raise ValueError(f"Target table {table} must be empty")
                     if rows:
+                        # Foreign keys are loaded in dependency order: accounts and policies
+                        # precede sessions and notification receipts.
                         # SQLite stores booleans as 0/1 and timestamps as ISO strings.
                         # psycopg requires Python booleans for PostgreSQL BOOLEAN columns.
                         boolean_columns={"schools":{"active"},"parent_accounts":{"enabled"},
