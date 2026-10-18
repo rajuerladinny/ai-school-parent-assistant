@@ -28,8 +28,16 @@ class Update(BaseModel):
 
 def now():return datetime.now(timezone.utc).isoformat()
 
+def _legacy_admin_allowed():
+    """Shared admin key cannot authorize staff operations in production."""
+    import os
+    if os.getenv("SCHOOL_ENV")=="production":
+        raise HTTPException(403,"Legacy shared-key staff API is disabled in production")
+
+
 @router.get("/questions")
 def questions(status:str|None=None,x_admin_key:str|None=Header(None)):
+    _legacy_admin_allowed()
     _auth(x_admin_key)
     if status is not None and status not in ("open","assigned","resolved"):
         raise HTTPException(422,"Invalid status")
@@ -42,6 +50,7 @@ def questions(status:str|None=None,x_admin_key:str|None=Header(None)):
 
 @router.patch("/questions/{question_id}")
 def update(question_id:int,payload:Update,x_admin_key:str|None=Header(None)):
+    _legacy_admin_allowed()
     _auth(x_admin_key)
     assignee=(payload.assigned_to or "").strip()
     resolution=(payload.resolution or "").strip()
@@ -65,6 +74,7 @@ def update(question_id:int,payload:Update,x_admin_key:str|None=Header(None)):
 
 @router.get("/questions/{question_id}/history")
 def history(question_id:int,x_admin_key:str|None=Header(None)):
+    _legacy_admin_allowed()
     _auth(x_admin_key)
     with _db() as c:
         if not c.execute("SELECT id FROM escalations WHERE id=? AND school_id=1",(question_id,)).fetchone():
