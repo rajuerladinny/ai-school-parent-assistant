@@ -381,7 +381,11 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             other_parent_headers={"authorization":"Bearer "+other_parent_login.json()["access_token"]}
             assert client.get("/api/auth/me",headers=other_parent_headers).json()["school_id"]==2
             blocked_chat=client.post("/api/chat",headers=other_parent_headers,json={"question":"What are school timings?"})
-            assert blocked_chat.status_code==403,blocked_chat.text
+            assert blocked_chat.status_code==200,blocked_chat.text
+            assert blocked_chat.json()["needs_staff"] is True
+            with psycopg.connect(target) as seeded:
+                assert seeded.execute("SELECT school_id FROM escalations WHERE id=%s",
+                    (blocked_chat.json()["escalation_id"],)).fetchone()[0]==2
             assert client.get("/api/parent/questions",headers=other_parent_headers).status_code==403
             assert client.get("/api/notifications/mine",headers=other_parent_headers).status_code==403
             assert client.post(f"/api/notifications/mine/{policy_id}/read",headers=other_parent_headers).status_code==403
