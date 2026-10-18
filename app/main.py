@@ -126,11 +126,11 @@ def auth(key):
     secret=os.getenv("SCHOOL_ADMIN_KEY","")
     if not secret:raise HTTPException(503,"Configure SCHOOL_ADMIN_KEY")
     if not key or not secrets.compare_digest(key,secret):raise HTTPException(401,"Invalid admin key")
-def fallback_search(question):
+def fallback_search(question,school_id=1):
     words=set(re.findall(r"[a-z]{3,}",question.lower()))-{"what","when","where","will","school","please","about","today","tomorrow","there","have","the","for","are","can","you"}
     with db() as c:
         ranked=[]
-        for row in c.execute("SELECT * FROM knowledge WHERE active=TRUE AND school_id=1"):
+        for row in c.execute("SELECT * FROM knowledge WHERE active=TRUE AND school_id=?",(school_id,)):
             topic=set(re.findall(r"[a-z]{3,}",row["topic"].lower()))
             score=4*len(words&topic)
             if score:ranked.append((score,dict(row)))
@@ -238,11 +238,15 @@ def delete_document(id:int,x_admin_key:str|None=Header(None)):
 def chat(q:Question,authorization:str|None=Header(None)):
     if os.getenv("SCHOOL_ENV")=="production" and not authorization:
         raise HTTPException(401,"Parent login required")
+    school_id=1
+    parent_id=None
     if authorization:
         with db() as c:
-            parent_auth.require_demo_school(parent_auth.parent(c,authorization))
+            principal=parent_auth.parent(c,authorization)
+            school_id=principal["school_id"]
+            parent_id=principal["id"]
     ensure_current_policy_index()
-    results=rag.search(q.question,limit=4,school_id=1)
+    results=rag.search(q.question,limit=4,school_id=school_id)
     # Avoid confident answers when semantic matches are weak.
     relevant=[r for r in results if r.get("distance",1.0)<=float(os.getenv("RAG_MAX_DISTANCE","0.62"))]
     if relevant:
@@ -253,11 +257,10 @@ def chat(q:Question,authorization:str|None=Header(None)):
     # Once semantic search is active, do not override a weak vector match with
     # keyword matching; that could turn an unrelated FAQ into a confident answer.
     if not rag.enabled():
-        fallback=fallback_search(q.question)
+        fallback=fallback_search(q.question,school_id=school_id)
         if fallback:return fallback
     with db() as c:
-        parent_id = parent_auth.parent(c,authorization)["id"] if authorization else None
-        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,1) RETURNING id",(q.question,parent_id))
+        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,?) RETURNING id",(q.question,parent_id,school_id))
         escalation_id=cur.fetchone()["id"]
     return {"answer":"I don't have verified information for that. Your question has been sent for school staff review.",
             "source":None,"needs_staff":True,"retrieval":"no-confident-match","escalation_id":escalation_id}
