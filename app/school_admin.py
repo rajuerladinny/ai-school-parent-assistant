@@ -3,16 +3,18 @@
 The legacy shared-key API remains demo-only. These endpoints never accept a
 school_id supplied by the caller; the tenant comes from the bearer principal.
 """
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from . import staff_auth
+from datetime import datetime, timezone
+from pathlib import Path
 
 router = APIRouter(prefix="/api/school-admin", tags=["school-admin"])
-_db = _reindex = None
+_db = _reindex = _extract = None
 
-def configure(db, reindex):
-    global _db, _reindex
-    _db, _reindex = db, reindex
+def configure(db, reindex, extract):
+    global _db, _reindex, _extract
+    _db, _reindex, _extract = db, reindex, extract
 
 class KnowledgeItem(BaseModel):
     topic: str = Field(min_length=2, max_length=100)
@@ -78,3 +80,39 @@ def list_escalations(authorization: str | None = Header(None)):
         return [dict(row) for row in c.execute(
             "SELECT * FROM escalations WHERE school_id=? ORDER BY id DESC",
             (user["school_id"],))]
+
+@router.post("/documents", status_code=201)
+async def upload_document(
+    file: UploadFile = File(...),
+    title: str = Form("School document"),
+    authorization: str | None = Header(None),
+):
+    # Authorize before reading or parsing untrusted uploads.
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        school_id = user["school_id"]
+    filename = Path(file.filename or "").name
+    if not filename or len(filename) > 180:
+        raise HTTPException(400, "Invalid filename")
+    data = await file.read(5 * 1024 * 1024 + 1)
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Maximum upload size is 5 MB")
+    content = _extract(filename, data).strip()
+    if len(content) < 30:
+        raise HTTPException(400, "Document contains too little extractable text")
+    if len(content) > 2_000_000:
+        raise HTTPException(413, "Extracted document text is too large")
+    clean_title = title.strip()[:150] or filename
+    with _db() as c:
+        # Revalidate the bearer session before persisting a tenant-owned record.
+        principal = staff_auth.principal(c, authorization, roles=("school_admin",))
+        if principal["school_id"] != school_id:
+            raise HTTPException(403, "School authorization changed")
+        cur = c.execute(
+            "INSERT INTO documents(filename,title,content,uploaded_at,school_id) "
+            "VALUES(?,?,?,?,?) RETURNING id",
+            (filename, clean_title, content, datetime.now(timezone.utc).isoformat(), school_id))
+        document_id = cur.fetchone()["id"]
+    indexed = _reindex()
+    return {"id": document_id, "filename": filename, "characters": len(content),
+            "vector_index_updated": indexed}
