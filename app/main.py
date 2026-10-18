@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from . import rag, policies
+from . import rag, policies, conflicts
 
 _last_policy_index_date = None
 
@@ -23,10 +23,10 @@ def db():
 def records_for_index():
     with db() as c:
         records=[]
-        for r in c.execute("SELECT id,topic,answer,source FROM knowledge"):
+        for r in c.execute("SELECT id,topic,answer,source FROM knowledge WHERE active=1"):
             records.append({"id":"faq-"+str(r["id"]),"topic":r["topic"],"source":r["source"],
                             "text":r["topic"]+"\n"+r["answer"]})
-        for r in c.execute("SELECT id,filename,title,content FROM documents"):
+        for r in c.execute("SELECT id,filename,title,content FROM documents WHERE active=1"):
             records.append({"id":"doc-"+str(r["id"]),"topic":r["title"],
                             "source":r["filename"],"text":r["content"]})
         records.extend(policies.active_records(c))
@@ -49,6 +49,7 @@ def setup():
             id INTEGER PRIMARY KEY, filename TEXT NOT NULL, title TEXT NOT NULL,
             content TEXT NOT NULL, uploaded_at TEXT NOT NULL)""")
         policies.setup(c)
+        conflicts.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
@@ -69,7 +70,7 @@ def fallback_search(question):
     words=set(re.findall(r"[a-z]{3,}",question.lower()))-{"what","when","where","will","school","please","about","today","tomorrow","there","have","the","for","are","can","you"}
     with db() as c:
         ranked=[]
-        for row in c.execute("SELECT * FROM knowledge"):
+        for row in c.execute("SELECT * FROM knowledge WHERE active=1"):
             topic=set(re.findall(r"[a-z]{3,}",row["topic"].lower()))
             score=4*len(words&topic)
             if score:ranked.append((score,dict(row)))
@@ -124,7 +125,7 @@ def delete(id:int,x_admin_key:str|None=Header(None)):
 def documents(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        return [dict(x) for x in c.execute("SELECT id,filename,title,uploaded_at,length(content) AS characters FROM documents ORDER BY id DESC")]
+        return [dict(x) for x in c.execute("SELECT id,filename,title,active,uploaded_at,length(content) AS characters FROM documents ORDER BY id DESC")]
 def extract_text(filename, data):
     suffix=Path(filename).suffix.lower()
     if suffix in (".txt",".md"):
@@ -201,3 +202,6 @@ def home():return Path(__file__).with_name("index.html").read_text()
 # Policy module uses the same admin key, SQLite store and document parser.
 policies.configure(db, auth, extract_text, rebuild_index)
 app.include_router(policies.router)
+
+conflicts.configure(db, auth, rebuild_index)
+app.include_router(conflicts.router)

@@ -73,3 +73,10 @@ API: `POST /api/policies` (multipart, admin), `GET /api/policies` (admin), `POST
 2. Try approved fictional documents and tune retrieval quality.
 3. Add secure staff accounts, document versioning and source-level access control.
 4. Validate privacy/security and school needs before any real pilot.
+
+
+## Feature 5: Potential policy conflicts and knowledge management
+
+When approving a policy, the server scans active FAQ topics and unversioned document titles for exact normalized matches against the policy title or key. Any matches are **potential overlaps**, not proof of contradictory content. Approval is blocked until the administrator deactivates each flagged legacy source. Deactivated knowledge is excluded from vector indexing and keyword fallback, but preserved in SQLite. The admin dashboard includes a conflict list and deactivation controls; the API exposes `GET /api/conflicts`, `POST /api/conflicts/scan/{policy_id}`, and `POST /api/conflicts/legacy/{faq|document}/{id}/deactivate` (admin key required). Reactivation is blocked when a current approved policy has the same topic.
+
+**Limitations:** This first release uses exact topic/key matching, not comprehensive semantic contradiction detection. Different labels for the same subject can escape detection; an administrator must review content manually. No separate two-person reviewer roles or notification service are included. Existing overlapping legacy items are not automatically disabled during migration.
