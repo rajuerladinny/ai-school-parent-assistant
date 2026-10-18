@@ -289,6 +289,31 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert client.get("/api/school-admin/notifications/summary",
                               headers=staff_headers).status_code==403
             assert client.get("/api/school-admin/notifications/summary").status_code==401
+            receipt_parent=client.post("/api/school-admin/parents",headers=admin_two,json={
+                "username":"receiptparenttwo","display_name":"Receipt Parent Two",
+                "password":"receipt-parent-password-123"})
+            assert receipt_parent.status_code==201,receipt_parent.text
+            receipt_parent_id=receipt_parent.json()["id"]
+            with psycopg.connect(target) as seeded:
+                parent_one_id=seeded.execute(
+                    "SELECT id FROM parent_accounts WHERE school_id=1 AND enabled=TRUE LIMIT 1").fetchone()[0]
+                seeded.execute(
+                    "INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES (%s,%s)",
+                    (parent_one_id,policy_id))
+                seeded.execute(
+                    "INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES (%s,%s)",
+                    (receipt_parent_id,policy_two_id))
+                # Even an inconsistent cross-school receipt must not leak into either total.
+                seeded.execute(
+                    "INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES (%s,%s)",
+                    (receipt_parent_id,policy_id))
+            summary_one=client.get("/api/school-admin/notifications/summary",headers=admin_one)
+            summary_two=client.get("/api/school-admin/notifications/summary",headers=admin_two)
+            assert summary_one.status_code==200 and summary_two.status_code==200
+            assert summary_one.json()["parent_read_receipts"]==1
+            assert summary_two.json()["parent_read_receipts"]==1
+            assert summary_one.json()["authenticated_parents"]==1
+            assert summary_two.json()["authenticated_parents"]==1
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
