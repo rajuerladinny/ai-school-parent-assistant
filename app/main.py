@@ -88,6 +88,10 @@ def setup():
         if "school_id" not in cols:
             c.execute("ALTER TABLE parent_accounts ADD COLUMN school_id INTEGER NOT NULL DEFAULT 1 REFERENCES schools(id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_parent_accounts_school ON parent_accounts(school_id)")
+        cols={r[1] for r in c.execute("PRAGMA table_info(escalations)")}
+        if "school_id" not in cols:
+            c.execute("ALTER TABLE escalations ADD COLUMN school_id INTEGER NOT NULL DEFAULT 1 REFERENCES schools(id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_escalations_school ON escalations(school_id,status)")
         staff.setup(c)
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
@@ -239,14 +243,14 @@ def chat(q:Question,authorization:str|None=Header(None)):
         if fallback:return fallback
     with db() as c:
         parent_id = parent_auth.parent(c,authorization)["id"] if authorization else None
-        cur=c.execute("INSERT INTO escalations(question,parent_id) VALUES(?,?)",(q.question,parent_id))
+        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,1)",(q.question,parent_id))
         escalation_id=cur.lastrowid
     return {"answer":"I don't have verified information for that. Your question has been sent for school staff review.",
             "source":None,"needs_staff":True,"retrieval":"no-confident-match","escalation_id":escalation_id}
 @app.get("/api/escalations")
 def escalations(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
-    with db() as c:return [dict(x) for x in c.execute("SELECT * FROM escalations ORDER BY id DESC")]
+    with db() as c:return [dict(x) for x in c.execute("SELECT * FROM escalations WHERE school_id=1 ORDER BY id DESC")]
 @app.get("/",response_class=HTMLResponse)
 def home():return Path(__file__).with_name("index.html").read_text()
 
