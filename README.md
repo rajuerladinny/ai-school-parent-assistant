@@ -1,44 +1,67 @@
-# AI School Parent Communication Assistant
+# AI School Parent Communication Assistant — RAG MVP
 
-Standalone **fictional-school MVP** featuring a parent chat and a school administration dashboard.
-
-## Fictional sample school
-Sunrise Valley School. All initial facts are illustrative and must not be treated as a real school's policies.
+Standalone fictional-school demo for parent questions and school staff. Example school: **Sunrise Valley School**. All facts and names are illustrative.
 
 ## Features
-- Parents can ask about school timings, holidays, fees, admissions and events.
-- Responses are based on school-approved knowledge entries and include source labels.
-- Admin can add/delete approved information with a configured secret key.
-- Unknown questions enter a staff review queue.
-- SQLite storage and automated backend tests.
+- Parent chat with source attribution and staff escalation for unknown questions
+- School admin can add/delete approved FAQ entries
+- Admin-only upload/list/delete for school documents: PDF, DOCX, TXT, Markdown; 5 MB upload limit
+- Document text chunking and local semantic vector retrieval using **ChromaDB + Sentence Transformers**
+- Optional local answer generation through **Ollama**; without Ollama, the app returns retrieved excerpts (extractive RAG)
+- Keyword FAQ fallback when optional vector dependencies are not installed
+- SQLite storage and CI tests
 
-**Important:** This is a **keyword-matching FAQ prototype**, not an LLM-powered autonomous AI agent. Ambiguous queries may match the wrong FAQ. Do not use with real children's personal data.
+## Run basic mode
 
-## Run locally
 Requires Python 3.10+.
 
 ```bash
 python -m venv .venv
-# Activate your environment for your operating system
+# Activate the environment for your operating system
 pip install -r requirements.txt
-# Configure SCHOOL_ADMIN_KEY with a long random secret
+# Configure SCHOOL_ADMIN_KEY to a long random secret
 uvicorn app.main:app --reload
 ```
 
-Visit http://127.0.0.1:8000 for the parent chat and admin dashboard.
+Open http://127.0.0.1:8000. The chat works with sample FAQs. The admin dashboard requires the configured key for changes.
 
-Run tests:
+## Enable local RAG vector search
+
+Install the optional dependencies:
+
+```bash
+pip install -r requirements-rag.txt
+```
+
+The first run downloads the Sentence Transformers embedding model. Vector data persists locally under `./chroma_data` by default. Set `RAG_VECTOR_PATH` to change that directory, and `RAG_EMBEDDING_MODEL` to choose another compatible embedding model.
+
+Upload approved school policy documents in the admin dashboard. Supported file types are PDF, DOCX, TXT and Markdown. PDFs must contain extractable text; scanned PDFs need OCR, which this MVP does not include. Uploaded text and extracted document content are stored in SQLite. Do not upload confidential student records.
+
+## Optional local answer generation
+
+Vector search retrieves the relevant passages. To have a local language model compose a concise answer grounded in those passages, install Ollama separately, pull a model you can run on your computer, and set:
+
+```bash
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2:3b
+```
+
+If Ollama is not configured or fails, the app transparently returns retrieved excerpts instead of pretending a language model answered. This keeps the MVP usable without OpenAI API keys or hosted model charges. Local models still require disk space, memory and CPU/GPU resources.
+
+## Verify
 
 ```bash
 python -m pytest -q
 ```
 
-## Safety and privacy
-**Do not deploy this demo publicly.** There is no parent verification, staff login system, rate limiting, audit logging, multi-school isolation, or secure student-data workflow. Avoid entering sensitive personal data. For real school use, add verified document ingestion, robust authentication, retention and deletion controls, stronger retrieval and a security/privacy review.
+`GET /api/health` reports whether vector search dependencies are available. The CI job installs the lightweight base requirements, so it tests upload, permissions, fallback behavior and endpoints without downloading the embedding model.
 
-## Roadmap
-1. Approved document uploads, citations and reliable AI retrieval.
-2. Staff login, review and approval workflow.
-3. English/Kannada multilingual parent chat; opt-in WhatsApp integration.
-4. Secure parent accounts and carefully scoped student-specific features.
-5. School pilots and production hardening.
+## Important limitations
+
+**Prototype only; do not deploy publicly or use with real student data.** This MVP does not have a production staff identity system, parent verification, tenant isolation, rate limiting, robust audit controls, OCR, or school-grade data governance. The admin key is a shared secret, not individual staff authentication. RAG can retrieve irrelevant passages; the similarity threshold and escalation path reduce but do not eliminate errors. Staff must verify answers about fees, dates, health, safety and school policies.
+
+## Next steps
+1. Run the CI workflow and review the pull request.
+2. Try approved fictional documents and tune retrieval quality.
+3. Add secure staff accounts, document versioning and source-level access control.
+4. Validate privacy/security and school needs before any real pilot.

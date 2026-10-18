@@ -22,3 +22,38 @@ def test_auth(client):
     x={"topic":"Lunch","answer":"Lunch is at noon.","source":"Handbook"}
     assert client.post("/api/knowledge",json=x).status_code==401
     assert client.post("/api/knowledge",json=x,headers={"X-Admin-Key":"test-key"}).status_code==201
+
+def test_health_reports_vector_mode(client):
+    r=client.get("/api/health")
+    assert r.status_code==200
+    assert "vector_search_enabled" in r.json()
+
+def test_document_upload_requires_admin(client):
+    r=client.post("/api/documents",files={"file":("policy.txt",b"This is an approved school policy document with enough text for the test.")})
+    assert r.status_code==401
+
+def test_upload_text_document_and_list(client):
+    h={"X-Admin-Key":"test-key"}
+    text=("Approved school policy: library hours are Monday to Friday from 9 AM to 2 PM. "
+          "Students must return library books by the announced due date. "*3)
+    r=client.post("/api/documents",headers=h,data={"title":"Library Policy"},
+                  files={"file":("library-policy.txt",text.encode())})
+    assert r.status_code==201
+    assert r.json()["filename"]=="library-policy.txt"
+    docs=client.get("/api/documents",headers=h).json()
+    assert any(d["title"]=="Library Policy" for d in docs)
+
+def test_upload_rejects_unsupported_type(client):
+    h={"X-Admin-Key":"test-key"}
+    r=client.post("/api/documents",headers=h,data={"title":"Bad"},
+                  files={"file":("image.exe",b"some content")})
+    assert r.status_code==415
+
+def test_delete_document(client):
+    h={"X-Admin-Key":"test-key"}
+    text=b"Approved policy information. School library hours are Monday through Friday. Contact the office for more information."
+    r=client.post("/api/documents",headers=h,data={"title":"Delete me"},
+                  files={"file":("delete.txt",text)})
+    assert r.status_code==201
+    doc_id=r.json()["id"]
+    assert client.delete(f"/api/documents/{doc_id}",headers=h).json()["deleted"] is True
