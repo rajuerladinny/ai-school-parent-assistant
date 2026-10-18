@@ -165,3 +165,8 @@ Individual school-linked `school_admin` and `staff` accounts can be provisioned 
 ## Explicit PostgreSQL schema bootstrap
 
 `python scripts/postgres_bootstrap.py --dsn <POSTGRES_DSN> --initialize-empty` initializes only an empty PostgreSQL schema. Omitting `--initialize-empty` validates the required tables. CI exercises validation and rejects reinitializing a populated schema. This does **not** activate PostgreSQL as the FastAPI runtime; runtime SQL conversion, schema alignment and end-to-end tests are still required. Never embed real database credentials in shell history or logs.
+
+
+## Database backend selection (safety gate)
+
+`SCHOOL_DATABASE_BACKEND=sqlite` is the only runnable demo backend at present. The new `SCHOOL_DATABASE_BACKEND=postgres` configuration is **intentionally rejected**, even with `SCHOOL_POSTGRES_RUNTIME_READY=1`, until full PostgreSQL query conversion and integration tests are complete. Production startup refuses SQLite. This prevents accidental live deployment with a partially converted database layer.

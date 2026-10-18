@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config
 
 _last_policy_index_date = None
 
@@ -99,6 +99,7 @@ def setup():
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
 def startup():
+    database_config.validate_configuration()
     if os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
         raise RuntimeError("SQLite production mode is disabled until PostgreSQL migration is complete")
     setup()
