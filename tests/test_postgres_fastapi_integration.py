@@ -178,6 +178,19 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                                  headers=admin_one).status_code==404
             assert client.delete(f"/api/school-admin/documents/{upload_two_id}",
                                  headers=admin_two).status_code==200
+            with psycopg.connect(target) as seeded:
+                seeded.execute(
+                    "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,"
+                    "status,effective_date,created_at) VALUES "
+                    "(2,'school2_rules',1,'School 2 Private Rules','rules.txt','Confidential school 2 policy',"
+                    "'draft','2026-01-01',CURRENT_TIMESTAMP)")
+            policies_one=client.get("/api/school-admin/policies",headers=admin_one)
+            policies_two=client.get("/api/school-admin/policies",headers=admin_two)
+            assert policies_one.status_code==200 and policies_two.status_code==200
+            assert all(p["title"]!="School 2 Private Rules" for p in policies_one.json())
+            assert any(p["title"]=="School 2 Private Rules" for p in policies_two.json())
+            assert client.get("/api/school-admin/policies",headers=staff_headers).status_code==403
+            assert client.get("/api/school-admin/policies").status_code==401
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
