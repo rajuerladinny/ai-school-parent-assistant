@@ -150,3 +150,8 @@ FAQ, uploaded documents and policy versions now carry `school_id`, existing reco
 ## Staff identity milestone (not production authentication)
 
 Individual school-linked `school_admin` and `staff` accounts can be provisioned through `POST /api/staff-auth/accounts` using the legacy bootstrap administrator key. Staff sign in at `/api/staff-auth/login` and use bearer credentials on `/api/staff/mine/questions`. Queries and updates are filtered by the authenticated school. This is **not complete production RBAC**: the legacy shared-admin-key routes remain available for demo school 1, login throttling, account lifecycle, password recovery, bootstrap rotation and audited permission enforcement are still required. No real school onboarding is supported.
+
+
+## Backup and restore verification foundation
+
+`scripts/verify_postgres_restore.py` runs `pg_dump`, restores into a **separate empty disposable PostgreSQL database**, and compares row counts for core tables. Requires PostgreSQL client tools and `psycopg`. The script refuses identical source/restore DSN strings. **Do not pass two different DSN strings that refer to the same database.** This is a utility, not evidence of a completed recovery drill: the restore has not yet been run against the actual application's full schema and data. Production recovery also needs encrypted offsite storage, tested point-in-time recovery, retention, restore-time objectives, RAG/Chroma reindexing, and documented access controls.
