@@ -12,7 +12,7 @@ def client(tmp_path, monkeypatch):
     main.setup()
     return TestClient(main.app)
 
-def upload(client, content, effective, key="fees"):
+def upload(client, content, effective, key="fee-policy"):
     return client.post("/api/policies", headers={"X-Admin-Key":"test-key"},
         data={"policy_key":key,"title":"Fee policy","effective_date":effective},
         files={"file":("fees.txt",content.encode("utf-8"))})
