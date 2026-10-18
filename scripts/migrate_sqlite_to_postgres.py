@@ -14,6 +14,12 @@ TABLES={
     "knowledge":("id","school_id","topic","answer","source","active"),
     "documents":("id","school_id","filename","title","content","uploaded_at","active"),
     "policy_versions":("id","school_id","policy_key","version","title","filename","content","status","effective_date","created_at","reviewed_at"),
+    "staff_accounts":("id","school_id","username","display_name","salt","password_hash","role","enabled","created_at"),
+    "staff_sessions":("token_hash","staff_id","expires_at"),
+    "parent_sessions":("token_hash","parent_id","expires_at"),
+    "escalations":("id","school_id","parent_id","question","status","assigned_to","resolution","created_at","updated_at","resolved_at"),
+    "escalation_events":("id","escalation_id","action","detail","created_at"),
+    "knowledge_conflicts":("id","policy_id","legacy_type","legacy_id","status","created_at","resolved_at"),
     "parent_notification_reads":("parent_id","policy_id","read_at"),
 }
 
