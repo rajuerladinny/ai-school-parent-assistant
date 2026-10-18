@@ -66,7 +66,7 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
     _admin(x_admin_key)
     salt=secrets.token_hex(16)
     with _db() as c:
-        if not c.execute("SELECT 1 FROM schools WHERE id=? AND active=1",(item.school_id,)).fetchone():
+        if not c.execute("SELECT 1 FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone():
             raise HTTPException(404,"School not found")
         try:
             cur=c.execute("""INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role)
@@ -96,7 +96,7 @@ def principal(c,authorization,roles=("school_admin","staff")):
         raise HTTPException(401,"Staff login required")
     row=c.execute("""SELECT a.id,a.school_id,a.username,a.display_name,a.role FROM staff_sessions s
         JOIN staff_accounts a ON a.id=s.staff_id JOIN schools sc ON sc.id=a.school_id
-        WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=1 AND sc.active=1""",
+        WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE AND sc.active=TRUE""",
         (hashlib.sha256(authorization[7:].encode()).hexdigest(),datetime.now(timezone.utc).isoformat())).fetchone()
     if not row:raise HTTPException(401,"Invalid or expired staff session")
     if row["role"] not in roles:raise HTTPException(403,"Insufficient staff permissions")
