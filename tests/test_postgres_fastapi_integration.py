@@ -209,6 +209,34 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                 headers=admin_two,json={"approve":True}).status_code==409
             assert all(p["id"]!=policy_two_id for p in client.get(
                 "/api/school-admin/policies",headers=admin_one).json())
+            # A School 2 policy conflict must not be resolvable by School 1.
+            conflicting=client.post("/api/school-admin/knowledge",headers=admin_two,json={
+                "topic":"school2_conflict","answer":"Outdated information must be retired",
+                "source":"Old FAQ"})
+            assert conflicting.status_code==201,conflicting.text
+            conflicting_id=conflicting.json()["id"]
+            draft=client.post("/api/school-admin/policies",headers=admin_two,
+                data={"policy_key":"school2_conflict","title":"School Two Conflict",
+                      "effective_date":"2026-01-01"},
+                files={"file":("conflict.txt",b"School Two replacement policy overrides outdated FAQ.","text/plain")})
+            assert draft.status_code==201,draft.text
+            draft_id=draft.json()["id"]
+            assert client.post(f"/api/school-admin/policies/{draft_id}/conflicts/scan",
+                headers=admin_one).status_code==404
+            scan=client.post(f"/api/school-admin/policies/{draft_id}/conflicts/scan",
+                headers=admin_two)
+            assert scan.status_code==200,scan.text
+            assert scan.json()["pending"]==1
+            assert client.post(f"/api/school-admin/policies/{draft_id}/review",
+                headers=admin_two,json={"approve":True}).status_code==409
+            assert client.post(f"/api/school-admin/legacy/faq/{conflicting_id}/deactivate",
+                headers=admin_one).status_code==404
+            assert client.post(f"/api/school-admin/legacy/faq/{conflicting_id}/deactivate",
+                headers=staff_headers).status_code==403
+            assert client.post(f"/api/school-admin/legacy/faq/{conflicting_id}/deactivate",
+                headers=admin_two).status_code==200
+            assert client.post(f"/api/school-admin/policies/{draft_id}/review",
+                headers=admin_two,json={"approve":True}).status_code==200
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
