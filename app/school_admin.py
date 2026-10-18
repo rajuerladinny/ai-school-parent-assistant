@@ -194,3 +194,32 @@ def review_policy(policy_id: int, decision: PolicyDecision,
             (status,datetime.now(timezone.utc).isoformat(),policy_id,school_id))
     indexed = _reindex()
     return {"id":policy_id,"status":status,"vector_index_updated":indexed}
+
+@router.post("/policies/{policy_id}/conflicts/scan")
+def scan_policy_conflicts(policy_id: int, authorization: str | None = Header(None)):
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        items = conflicts.scan(c, policy_id, school_id)
+        return {"policy_id": policy_id, "conflicts": [dict(x) for x in items],
+                "pending": sum(x["status"] == "open" for x in items)}
+
+@router.post("/legacy/{kind}/{item_id}/deactivate")
+def deactivate_legacy(kind: str, item_id: int,
+                      authorization: str | None = Header(None)):
+    if kind not in ("faq", "document"):
+        raise HTTPException(422, "Invalid knowledge type")
+    table = "knowledge" if kind == "faq" else "documents"
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        result = c.execute(
+            f"UPDATE {table} SET active=FALSE WHERE id=? AND school_id=? AND active=TRUE",
+            (item_id,school_id))
+        if not result.rowcount:
+            raise HTTPException(404, "Active knowledge item not found")
+        c.execute(
+            "UPDATE knowledge_conflicts SET status='resolved',resolved_at=CURRENT_TIMESTAMP "
+            "WHERE legacy_type=? AND legacy_id=? AND status='open' "
+            "AND policy_id IN (SELECT id FROM policy_versions WHERE school_id=?)",
+            (kind,item_id,school_id))
+    indexed = _reindex()
+    return {"deactivated":True,"vector_index_updated":indexed}
