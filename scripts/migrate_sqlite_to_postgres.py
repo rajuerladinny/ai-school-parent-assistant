@@ -40,18 +40,28 @@ def migrate(source_path, target_dsn, *, dry_run=True):
                     if not exists:
                         raise ValueError(f"Source table {table} is missing; migration requires a fully initialized SQLite schema")
                     available={r[1] for r in src.execute(f"PRAGMA table_info({table})")}
-                    selected=[col for col in columns if col in available]
-                    if "id" in columns and "id" not in selected:
-                        raise ValueError(f"{table}: missing ID column")
+                    missing=set(columns)-available
+                    if missing:
+                        raise ValueError(f"{table}: missing required columns: {sorted(missing)}")
+                    selected=list(columns)
                     rows=src.execute(f"SELECT {','.join(selected)} FROM {table}").fetchall()
                     counts[table]=len(rows)
                     cur.execute(f"SELECT COUNT(*) FROM {table}")
                     if cur.fetchone()[0]:
                         raise ValueError(f"Target table {table} must be empty")
                     if rows:
+                        # SQLite stores booleans as 0/1 and timestamps as ISO strings.
+                        # psycopg requires Python booleans for PostgreSQL BOOLEAN columns.
+                        boolean_columns={"schools":{"active"},"parent_accounts":{"enabled"},
+                                         "staff_accounts":{"enabled"},"knowledge":{"active"},
+                                         "documents":{"active"}}
+                        values=[]
+                        for row in rows:
+                            values.append(tuple(bool(row[col]) if col in boolean_columns.get(table,set())
+                                                else row[col] for col in selected))
                         placeholders=",".join(["%s"]*len(selected))
                         statement=f"INSERT INTO {table} ({','.join(selected)}) VALUES ({placeholders})"
-                        cur.executemany(statement,[tuple(row) for row in rows])
+                        cur.executemany(statement,values)
                         cur.execute(f"SELECT COUNT(*) FROM {table}")
                         if cur.fetchone()[0]!=len(rows):
                             raise ValueError(f"Count mismatch in {table}")
