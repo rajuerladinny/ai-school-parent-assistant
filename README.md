@@ -113,3 +113,10 @@ When a logged-in parent asks an unanswered question through `POST /api/chat` wit
 ## Security hardening (parent authentication)
 
 Parent login now applies a per-client-IP and username throttle of five attempts per five-minute window (HTTP 429 with Retry-After). The throttle is **in-memory per process**, so it is suitable only for the demo; production needs a shared store and proxy-aware IP handling. Legacy anonymous notification subscription, inbox, read and unsubscribe endpoints have been retired; use parent login and `/api/notifications/mine` instead. Legacy SQLite subscription records are not automatically deleted; a reviewed data-retention migration is still required. The administrator uses a shared secret and staff do not yet have individual accounts. Do not use real student/parent information or expose the demo to real school users until production identity, abuse protection, access control, privacy and audit logging are implemented.
+
+
+## Production security baseline (work in progress)
+
+Set `SCHOOL_ENV=production`, `SCHOOL_ADMIN_KEY` to a random value of at least 32 characters, and `SCHOOL_ALLOWED_HOSTS` to a comma-separated list of exact permitted hostnames. The service refuses to start if these are missing. Set `SCHOOL_ENFORCE_HTTPS=1` only when the reverse-proxy setup forwards scheme correctly; otherwise enforce HTTPS at the ingress. Production mode disables interactive API documentation and requires parent login for chat. Admin knowledge listing is now protected. Basic security headers and SQLite foreign-key enforcement are enabled. CI adds dependency auditing and Git-history secret scanning.
+
+**Not production-ready yet:** This is only a security baseline. SQLite is not a suitable shared production database, the admin key is still shared, staff assignments are labels rather than role-scoped accounts, rate limiting is in-process, CSP allows inline scripts/styles for the current single-file UI, school tenancy is not enforced, and no external penetration test, backup/restore drill, incident plan, or privacy compliance review has been completed. Keep the repo private and do not deploy real school data.
