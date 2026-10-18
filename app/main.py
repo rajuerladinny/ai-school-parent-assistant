@@ -1,7 +1,7 @@
 import os, sqlite3, secrets, re, io
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from . import rag
@@ -136,7 +136,7 @@ def extract_text(filename, data):
         except Exception:raise HTTPException(400,"Could not read this DOCX file")
     raise HTTPException(415,"Supported file types: PDF, DOCX, TXT, MD")
 @app.post("/api/documents",status_code=201)
-async def upload_document(file:UploadFile=File(...),title:str="School document",x_admin_key:str|None=Header(None)):
+async def upload_document(file:UploadFile=File(...),title:str=Form("School document"),x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     filename=Path(file.filename or "").name
     if not filename or len(filename)>180:raise HTTPException(400,"Invalid filename")
