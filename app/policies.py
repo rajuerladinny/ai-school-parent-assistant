@@ -90,10 +90,10 @@ async def upload_policy(policy_key: str = Form(...), title: str = Form(...),
         version = c.execute("SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=1", (policy_key,)).fetchone()[0]
         cur = c.execute("""INSERT INTO policy_versions
             (policy_key,version,title,filename,content,effective_date,created_at,school_id)
-            VALUES (?,?,?,?,?,?,?,?)""",
+            VALUES (?,?,?,?,?,?,?,?) RETURNING id""",
             (policy_key,version,title,filename,content,effective_date,
              datetime.now(timezone.utc).isoformat(),1))
-        return {"id":cur.lastrowid, "policy_key":policy_key, "version":version,
+        return {"id":cur.fetchone()["id"], "policy_key":policy_key, "version":version,
                 "status":"draft", "note":"Not visible to parents until approved and effective."}
 
 class Decision(BaseModel):
