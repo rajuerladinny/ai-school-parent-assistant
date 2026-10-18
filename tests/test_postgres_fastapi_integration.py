@@ -179,6 +179,17 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert rag.search("private",school_id=1)[0]["text"]=="School 1 private content"
             assert rag.search("private",school_id=2)[0]["text"]=="School 2 private content"
             assert collection.scopes==[{"school_id":1},{"school_id":2}]
+            class LeakyCollection(ScopedCollection):
+                def query(self,**kwargs):
+                    self.scopes.append(kwargs["where"])
+                    return {"documents":[["School 2 SECRET","School 1 public"]],
+                            "metadatas":[[{"school_id":2,"source":"other","topic":"private"},
+                                          {"school_id":1,"source":"own","topic":"public"}]],
+                            "distances":[[0.01,0.2]]}
+            monkeypatch.setattr(rag,"_collection",LeakyCollection())
+            safe=rag.search("private",school_id=1)
+            assert [x["text"] for x in safe]==["School 1 public"]
+            assert all("SECRET" not in x["text"] for x in safe)
             for invalid_school in (0,-1,None,True,"2"):
                 with pytest.raises(ValueError):
                     rag.search("school policies",school_id=invalid_school)
