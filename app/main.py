@@ -119,6 +119,10 @@ class Item(BaseModel):
 class Question(BaseModel):
     question:str=Field(min_length=3,max_length=500)
 def auth(key):
+    # The shared bootstrap key has no school identity or RBAC claims.
+    # Reject it for every legacy admin endpoint in production.
+    if os.getenv("SCHOOL_ENV")=="production":
+        raise HTTPException(403,"Legacy shared-key admin API is disabled in production")
     secret=os.getenv("SCHOOL_ADMIN_KEY","")
     if not secret:raise HTTPException(503,"Configure SCHOOL_ADMIN_KEY")
     if not key or not secrets.compare_digest(key,secret):raise HTTPException(401,"Invalid admin key")
