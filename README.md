@@ -170,3 +170,8 @@ Individual school-linked `school_admin` and `staff` accounts can be provisioned 
 ## Database backend selection (safety gate)
 
 `SCHOOL_DATABASE_BACKEND=sqlite` is the only runnable demo backend at present. The new `SCHOOL_DATABASE_BACKEND=postgres` configuration is **intentionally rejected**, even with `SCHOOL_POSTGRES_RUNTIME_READY=1`, until full PostgreSQL query conversion and integration tests are complete. Production startup refuses SQLite. This prevents accidental live deployment with a partially converted database layer.
+
+
+## PostgreSQL SQL compatibility inventory
+
+Run `python scripts/audit_sqlite_sql.py` to list SQLite-only PRAGMA statements, INSERT OR IGNORE, implicit lastrowid, table_info, INTEGER PRIMARY KEY and COLLATE NOCASE occurrences in the application. Run with `--strict` to fail if any remain. This is a static migration checklist and does **not** make the runtime PostgreSQL-compatible. Actual conversion requires replacing these operations, aligning PostgreSQL schema with application models, and integration testing every route.
