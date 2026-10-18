@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, parent_questions
 
 _last_policy_index_date = None
 
@@ -53,6 +53,7 @@ def setup():
         notifications.setup(c)
         parent_auth.setup(c)
         staff.setup(c)
+        parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
@@ -177,7 +178,7 @@ def delete_document(id:int,x_admin_key:str|None=Header(None)):
     rebuild_index()
     return {"deleted":True}
 @app.post("/api/chat")
-def chat(q:Question):
+def chat(q:Question,authorization:str|None=Header(None)):
     ensure_current_policy_index()
     results=rag.search(q.question,limit=4)
     # Avoid confident answers when semantic matches are weak.
@@ -192,9 +193,12 @@ def chat(q:Question):
     if not rag.enabled():
         fallback=fallback_search(q.question)
         if fallback:return fallback
-    with db() as c:c.execute("INSERT INTO escalations(question) VALUES(?)",(q.question,))
+    with db() as c:
+        parent_id = parent_auth.parent(c,authorization)["id"] if authorization else None
+        cur=c.execute("INSERT INTO escalations(question,parent_id) VALUES(?,?)",(q.question,parent_id))
+        escalation_id=cur.lastrowid
     return {"answer":"I don't have verified information for that. Your question has been sent for school staff review.",
-            "source":None,"needs_staff":True,"retrieval":"no-confident-match"}
+            "source":None,"needs_staff":True,"retrieval":"no-confident-match","escalation_id":escalation_id}
 @app.get("/api/escalations")
 def escalations(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
@@ -217,3 +221,6 @@ app.include_router(parent_auth.router)
 
 staff.configure(db, auth)
 app.include_router(staff.router)
+
+parent_questions.configure(db)
+app.include_router(parent_questions.router)
