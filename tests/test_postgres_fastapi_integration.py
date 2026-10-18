@@ -237,6 +237,24 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                 headers=admin_two).status_code==200
             assert client.post(f"/api/school-admin/policies/{draft_id}/review",
                 headers=admin_two,json={"approve":True}).status_code==200
+            new_parent=client.post("/api/school-admin/parents",headers=admin_two,json={
+                "username":"admincreatedparent","display_name":"Admin Created Parent",
+                "password":"secure-created-parent-123"})
+            assert new_parent.status_code==201,new_parent.text
+            new_parent_id=new_parent.json()["id"]
+            assert client.post("/api/school-admin/parents",headers=staff_headers,json={
+                "username":"staffcannotcreate","display_name":"Staff Cannot Create",
+                "password":"secure-created-parent-123"}).status_code==403
+            assert client.post(f"/api/school-admin/parents/{new_parent_id}/disable",
+                headers=admin_one).status_code==404
+            new_login=client.post("/api/auth/login",json={
+                "username":"admincreatedparent","password":"secure-created-parent-123"})
+            assert new_login.status_code==200,new_login.text
+            new_headers={"authorization":"Bearer "+new_login.json()["access_token"]}
+            assert client.get("/api/auth/me",headers=new_headers).json()["school_id"]==2
+            assert client.post(f"/api/school-admin/parents/{new_parent_id}/disable",
+                headers=admin_two).status_code==200
+            assert client.get("/api/auth/me",headers=new_headers).status_code==401
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
