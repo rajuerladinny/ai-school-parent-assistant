@@ -78,3 +78,20 @@ def test_vector_result_includes_source(client, monkeypatch):
     assert r.json()["needs_staff"] is False
     assert r.json()["retrieval"] == "chroma-vector"
     assert r.json()["sources"][0]["source"] == "Approved library policy"
+
+
+def test_knowledge_listing_requires_admin(client):
+    assert client.get("/api/knowledge").status_code==401
+    assert client.get("/api/knowledge",headers={"X-Admin-Key":"test-key"}).status_code==200
+
+def test_security_headers(client):
+    r=client.get("/api/health")
+    assert r.headers["x-content-type-options"]=="nosniff"
+    assert r.headers["x-frame-options"]=="DENY"
+    assert r.headers["cache-control"]=="no-store"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+
+def test_production_chat_requires_parent_login(client,monkeypatch):
+    monkeypatch.setenv("SCHOOL_ENV","production")
+    assert client.post("/api/chat",json={"question":"What are school timings?"}).status_code==401
+    monkeypatch.delenv("SCHOOL_ENV")
