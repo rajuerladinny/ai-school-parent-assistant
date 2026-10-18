@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin
 
 _last_policy_index_date = None
 
@@ -290,3 +290,7 @@ app.include_router(parent_questions.router)
 # School-specific staff login and identity API.
 staff_auth.configure(db,auth)
 app.include_router(staff_auth.router)
+
+# Bearer-authenticated, tenant-scoped administrative replacement API.
+school_admin.configure(db,rebuild_index)
+app.include_router(school_admin.router)
