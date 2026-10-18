@@ -103,7 +103,7 @@ def setup():
 @app.on_event("startup")
 def startup():
     database_config.validate_configuration()
-    if os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
+    if database_config.backend()=="sqlite" and os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
         raise RuntimeError("SQLite production mode is disabled until PostgreSQL migration is complete")
     if database_config.backend()=="postgres":
         from scripts.postgres_bootstrap import validate
