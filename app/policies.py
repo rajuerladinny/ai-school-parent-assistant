@@ -106,6 +106,8 @@ def review_policy(policy_id: int, decision: Decision, x_admin_key: str | None = 
         if decision.approve:
             unresolved = conflicts.pending(c, policy_id)
             if unresolved:
+                # Persist discovered overlaps even though approval is rejected.
+                c.commit()
                 raise HTTPException(409, f"{unresolved} unresolved legacy knowledge overlap(s); deactivate outdated items before approval")
         status = "approved" if decision.approve else "rejected"
         c.execute("UPDATE policy_versions SET status=?,reviewed_at=? WHERE id=?",
