@@ -71,11 +71,11 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
         try:
             school=c.execute("SELECT id FROM schools WHERE id=? AND active=1",(item.school_id,)).fetchone()
             if not school:raise HTTPException(404,"School not found")
-            cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?)",
+            cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?) RETURNING id",
                           (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409,"Username already exists")
-        return {"id":cur.lastrowid,"username":item.username.lower(),"role":"parent"}
+        return {"id":cur.fetchone()["id"],"username":item.username.lower(),"role":"parent"}
 
 @router.post("/login")
 def login(item:Credentials,request:Request):
