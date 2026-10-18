@@ -161,6 +161,19 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             from app import staff as staff_routes
             monkeypatch.setenv("SCHOOL_ENV","production")
             try:
+                assert client.get("/api/knowledge",headers=headers).status_code==403
+                assert client.post("/api/knowledge",headers=headers,json={
+                    "topic":"Blocked","answer":"Must never write to production","source":"test"}).status_code==403
+                assert client.get("/api/documents",headers=headers).status_code==403
+                assert client.get("/api/escalations",headers=headers).status_code==403
+                assert client.get("/api/policies",headers=headers).status_code==403
+                assert client.get("/api/notifications/admin/summary",headers=headers).status_code==403
+                assert client.post("/api/auth/parents",headers=headers,json={
+                    "username":"blockedparent","display_name":"Blocked Parent",
+                    "password":"secure-blocked-123","school_id":1}).status_code==403
+                assert client.post("/api/staff-auth/accounts",headers=headers,json={
+                    "username":"blockedstaff","display_name":"Blocked Staff",
+                    "password":"secure-blocked-123","school_id":1,"role":"staff"}).status_code==403
                 assert client.get("/api/staff/questions",headers=headers).status_code==403
                 assert client.patch(f"/api/staff/questions/{question_id}",headers=headers,json={
                     "status":"resolved","resolution":"legacy access denied"}).status_code==403
