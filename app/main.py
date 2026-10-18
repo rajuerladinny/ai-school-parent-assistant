@@ -49,7 +49,7 @@ def db():
 def records_for_index():
     with db() as c:
         records=[]
-        for r in c.execute("SELECT id,topic,answer,source,school_id FROM knowledge WHERE active=1"):
+        for r in c.execute("SELECT id,topic,answer,source,school_id FROM knowledge WHERE active=TRUE"):
             records.append({"id":"faq-"+str(r["id"]),"school_id":r["school_id"],"topic":r["topic"],"source":r["source"],
                             "text":r["topic"]+"\n"+r["answer"]})
         for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=1"):
@@ -217,7 +217,7 @@ async def upload_document(file:UploadFile=File(...),title:str=Form("School docum
     if len(text)>2_000_000:raise HTTPException(413,"Extracted document text is too large")
     clean_title=title.strip()[:150] or filename
     with db() as c:
-        cur=c.execute("INSERT INTO documents(filename,title,content,uploaded_at) VALUES(?,?,?,?) RETURNING id",
+        cur=c.execute("INSERT INTO documents(filename,title,content,uploaded_at,school_id) VALUES(?,?,?,?,1) RETURNING id",
                       (filename,clean_title,text,datetime.now(timezone.utc).isoformat()))
         doc_id=cur.fetchone()["id"]
     indexed=rebuild_index()
