@@ -6,12 +6,35 @@ reset and a dedicated identity provider. Parents cannot self-register.
 import hashlib
 import hmac
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
 router=APIRouter(prefix="/api/auth",tags=["auth"])
 _db=_admin=None
+_login_attempts={}
+_login_lock=threading.Lock()
+_LOGIN_WINDOW_SECONDS=300
+_LOGIN_MAX_ATTEMPTS=5
+
+def _check_login_limit(username,ip):
+    now=time.monotonic()
+    key=(ip,username.lower())
+    with _login_lock:
+        for k,v in list(_login_attempts.items()):
+            if now-v[0]>_LOGIN_WINDOW_SECONDS:
+                del _login_attempts[k]
+        start,count=_login_attempts.get(key,(now,0))
+        if count>=_LOGIN_MAX_ATTEMPTS:
+            raise HTTPException(429,"Too many login attempts; try again later",headers={"Retry-After":str(_LOGIN_WINDOW_SECONDS)})
+        _login_attempts[key]=(start,count+1)
+
+def _clear_login_limit(username,ip):
+    with _login_lock:
+        _login_attempts.pop((ip,username.lower()),None)
+
 
 def configure(db,admin):
     global _db,_admin
@@ -52,7 +75,9 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
         return {"id":cur.lastrowid,"username":item.username.lower(),"role":"parent"}
 
 @router.post("/login")
-def login(item:Credentials):
+def login(item:Credentials,request:Request):
+    ip=request.client.host if request.client else 'unknown'
+    _check_login_limit(item.username,ip)
     with _db() as c:
         row=c.execute("SELECT * FROM parent_accounts WHERE username=?",(item.username,)).fetchone()
         # Same generic error for unknown user, wrong password, or disabled account.
@@ -63,6 +88,7 @@ def login(item:Credentials):
         expiry=(datetime.now(timezone.utc)+timedelta(hours=12)).isoformat()
         c.execute("INSERT INTO parent_sessions(token_hash,parent_id,expires_at) VALUES(?,?,?)",
                   (hashlib.sha256(token.encode()).hexdigest(),row["id"],expiry))
+    _clear_login_limit(item.username,ip)
     return {"access_token":token,"token_type":"bearer","expires_at":expiry,"role":"parent"}
 
 def parent(c,authorization):

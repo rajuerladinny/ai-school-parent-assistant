@@ -24,27 +24,22 @@ def policy(client,key,effective):
     assert client.post(f"/api/policies/{pid}/review",headers=h,json={"approve":True}).status_code==200
     return pid
 
-def test_opt_in_approved_effective_only_read_and_unsubscribe(client):
-    token=client.post("/api/notifications/subscribe",json={"label":"Parent demo"}).json()["token"]
-    h={"X-Notification-Token":token}
-    assert client.get("/api/notifications").status_code==401
-    assert client.get("/api/notifications",headers={"X-Notification-Token":"wrong"}).status_code==401
+def test_authenticated_inbox_and_retired_anonymous_routes(client):
+    h={"X-Admin-Key":"test-key"}
+    assert client.post("/api/auth/parents",headers=h,json={"username":"noticesparent","display_name":"Demo Parent","password":"demo-secure-password-123"}).status_code==201
+    token=client.post("/api/auth/login",json={"username":"noticesparent","password":"demo-secure-password-123"}).json()["access_token"]
+    bearer={"Authorization":"Bearer "+token}
     past=policy(client,"library-updates",(date.today()-timedelta(days=1)).isoformat())
     future=policy(client,"bus-updates",(date.today()+timedelta(days=3)).isoformat())
-    # Drafts must not appear.
-    r=client.post("/api/policies",headers={"X-Admin-Key":"test-key"},
-        data={"policy_key":"sports-updates","title":"sports-updates","effective_date":date.today().isoformat()},
-        files={"file":("draft.txt",b"Draft school policy for sports activities and school grounds.")})
-    assert r.status_code==201
-    items=client.get("/api/notifications",headers=h).json()
-    assert [x["policy_id"] for x in items]==[past]
-    assert items[0]["is_read"]==0
-    assert client.post(f"/api/notifications/{future}/read",headers=h).status_code==404
-    assert client.post(f"/api/notifications/{past}/read",headers=h).json()["read"]
-    assert client.get("/api/notifications",headers=h).json()[0]["is_read"]==1
-    assert client.delete("/api/notifications/subscription",headers=h).json()["unsubscribed"]
-    assert client.get("/api/notifications",headers=h).status_code==401
+    assert client.get("/api/notifications/mine").status_code==401
+    assert [x["policy_id"] for x in client.get("/api/notifications/mine",headers=bearer).json()]==[past]
+    assert client.post(f"/api/notifications/mine/{future}/read",headers=bearer).status_code==404
+    assert client.post(f"/api/notifications/mine/{past}/read",headers=bearer).status_code==200
+    assert client.get("/api/notifications/mine",headers=bearer).json()[0]["is_read"]==1
+    assert client.post("/api/notifications/subscribe",json={"label":"legacy"}).status_code==404
+    assert client.get("/api/notifications").status_code==404
+    assert client.delete("/api/notifications/subscription").status_code==404
 
 def test_admin_summary_protected(client):
     assert client.get("/api/notifications/admin/summary").status_code==401
-    assert client.get("/api/notifications/admin/summary",headers={"X-Admin-Key":"test-key"}).json()["subscribers"]==0
+    assert client.get("/api/notifications/admin/summary",headers={"X-Admin-Key":"test-key"}).json()["authenticated_parents"]==0
