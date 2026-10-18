@@ -99,8 +99,19 @@ def update_my_school_question(question_id:int,payload:Update,authorization:str|N
         resolution=(payload.resolution or "").strip()
         if payload.status=="assigned" and not assignee:raise HTTPException(422,"Assignee required")
         if payload.status=="resolved" and not resolution:raise HTTPException(422,"Resolution required")
-        if user["role"]=="staff" and payload.status=="assigned" and assignee!=user["username"]:
-            raise HTTPException(403,"Staff can only assign questions to themselves")
+        if user["role"]=="staff":
+            if existing["status"]=="assigned":
+                ownership=c.execute("SELECT assigned_to FROM escalations WHERE id=? AND school_id=?",
+                                    (question_id,user["school_id"])).fetchone()
+                if ownership["assigned_to"]!=user["username"]:
+                    raise HTTPException(403,"Question is assigned to another staff member")
+            if payload.status=="assigned" and assignee!=user["username"]:
+                raise HTTPException(403,"Staff can only assign questions to themselves")
+        if assignee and payload.status=="assigned":
+            assignee_row=c.execute("SELECT id FROM staff_accounts WHERE username=? AND school_id=? AND enabled=1",
+                                   (assignee,user["school_id"])).fetchone()
+            if not assignee_row:
+                raise HTTPException(422,"Assignee must be an active staff account in this school")
         c.execute("""UPDATE escalations SET status=?,assigned_to=?,resolution=?,updated_at=?,resolved_at=?
             WHERE id=? AND school_id=?""",(payload.status,assignee or None,resolution or None,now(),
                 now() if payload.status=="resolved" else None,question_id,user["school_id"]))
