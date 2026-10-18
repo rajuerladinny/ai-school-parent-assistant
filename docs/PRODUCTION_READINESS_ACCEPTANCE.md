@@ -46,3 +46,11 @@ The completed subitems above do **not** satisfy the unchecked top-level release 
 - [ ] **Security assessment:** no full endpoint authorization matrix or production penetration/security review.
 
 Passing CI verifies the isolated drill, not production operational readiness.
+
+## Priority 1, Step 2 — FastAPI connection routing (2026-10-18)
+
+- [x] Implemented PostgreSQL selection in `app.main.db()`, using `app.postgres_adapter.connect` and `SCHOOL_POSTGRES_DSN`.
+- [x] Added a PostgreSQL startup branch that validates an externally provisioned schema instead of running SQLite DDL or demo seeding.
+- [x] Added tests for adapter routing, SQLite fallback and fail-closed PostgreSQL startup (`tests/test_postgres_fastapi_routing.py`).
+- [ ] Awaiting CI evidence for these changes.
+- [ ] PostgreSQL runtime activation remains deliberately blocked until API SQL compatibility, tenant isolation and real PostgreSQL FastAPI integration tests are verified. Do not remove the guard merely to enable production.
