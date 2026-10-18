@@ -158,6 +158,10 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert receipt.status_code==200,receipt.text
             assert any(x["policy_id"]==policy_id and x["is_read"] for x in client.get("/api/notifications/mine",headers=parent_headers).json())
             assert client.get("/api/notifications/admin/summary",headers=headers).status_code==200
+            from app import rag
+            for invalid_school in (0,-1,None,True,"2"):
+                with pytest.raises(ValueError):
+                    rag.search("school policies",school_id=invalid_school)
             assert all(x["school_id"]==1 for x in client.get("/api/knowledge",headers=headers).json())
             assert all(x["school_id"]==1 for x in client.get("/api/escalations",headers=headers).json())
             assert client.get("/api/parent/questions").status_code==401
