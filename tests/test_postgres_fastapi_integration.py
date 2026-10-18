@@ -146,6 +146,10 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert client.get("/api/parent/questions",headers=other_parent_headers).status_code==403
             assert client.get("/api/notifications/mine",headers=other_parent_headers).status_code==403
             assert client.post(f"/api/notifications/mine/{policy_id}/read",headers=other_parent_headers).status_code==403
+            parent_relogin=client.post("/api/auth/login",json={
+                "username":"pgparent","password":"secure-parent-pass-123"})
+            assert parent_relogin.status_code==200,parent_relogin.text
+            parent_headers={"authorization":"Bearer "+parent_relogin.json()["access_token"]}
             assert client.get("/api/parent/questions",headers=parent_headers).status_code==200
             inbox=client.get("/api/notifications/mine",headers=parent_headers)
             assert inbox.status_code==200,inbox.text
