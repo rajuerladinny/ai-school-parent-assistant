@@ -52,7 +52,7 @@ def records_for_index():
         for r in c.execute("SELECT id,topic,answer,source,school_id FROM knowledge WHERE active=TRUE"):
             records.append({"id":"faq-"+str(r["id"]),"school_id":r["school_id"],"topic":r["topic"],"source":r["source"],
                             "text":r["topic"]+"\n"+r["answer"]})
-        for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=1"):
+        for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=TRUE"):
             records.append({"id":"doc-"+str(r["id"]),"school_id":r["school_id"],"topic":r["title"],
                             "source":r["filename"],"text":r["content"]})
         records.extend({**r,"school_id":1} for r in policies.active_records(c))
@@ -126,7 +126,7 @@ def fallback_search(question):
     words=set(re.findall(r"[a-z]{3,}",question.lower()))-{"what","when","where","will","school","please","about","today","tomorrow","there","have","the","for","are","can","you"}
     with db() as c:
         ranked=[]
-        for row in c.execute("SELECT * FROM knowledge WHERE active=1 AND school_id=1"):
+        for row in c.execute("SELECT * FROM knowledge WHERE active=TRUE AND school_id=1"):
             topic=set(re.findall(r"[a-z]{3,}",row["topic"].lower()))
             score=4*len(words&topic)
             if score:ranked.append((score,dict(row)))
