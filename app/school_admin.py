@@ -5,7 +5,7 @@ school_id supplied by the caller; the tenant comes from the bearer principal.
 """
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from . import staff_auth
+from . import staff_auth, conflicts, policies
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -125,3 +125,72 @@ def list_policies(authorization: str | None = Header(None)):
             "SELECT id,policy_key,version,title,filename,status,effective_date,created_at,reviewed_at "
             "FROM policy_versions WHERE school_id=? ORDER BY policy_key,version DESC",
             (user["school_id"],))]
+
+@router.post("/policies", status_code=201)
+async def upload_policy(
+    policy_key: str = Form(...), title: str = Form(...),
+    effective_date: str = Form(...), file: UploadFile = File(...),
+    authorization: str | None = Header(None),
+):
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+    key = policy_key.strip().lower()
+    if not (2 <= len(key) <= 80) or not all(ch.isalnum() or ch in "-_" for ch in key):
+        raise HTTPException(422, "Invalid policy key")
+    title = title.strip()
+    if not (2 <= len(title) <= 150):
+        raise HTTPException(422, "Invalid title")
+    effective_date = policies._validate_date(effective_date)
+    filename = (file.filename or "").replace("\\", "/").split("/")[-1]
+    if not filename or len(filename) > 180:
+        raise HTTPException(400, "Invalid filename")
+    data = await file.read(5 * 1024 * 1024 + 1)
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Maximum upload size is 5 MB")
+    content = _extract(filename, data).strip()
+    if not 30 <= len(content) <= 2_000_000:
+        raise HTTPException(422, "Document must contain 30 to 2,000,000 characters")
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        if user["school_id"] != school_id:
+            raise HTTPException(403, "School authorization changed")
+        if __import__("app.database_config", fromlist=["backend"]).backend() == "sqlite":
+            c.execute("BEGIN IMMEDIATE")
+        version = c.execute(
+            "SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=?",
+            (key, school_id)).fetchone()[0]
+        cur = c.execute(
+            "INSERT INTO policy_versions(policy_key,version,title,filename,content,effective_date,created_at,school_id) "
+            "VALUES(?,?,?,?,?,?,?,?) RETURNING id",
+            (key,version,title,filename,content,effective_date,
+             datetime.now(timezone.utc).isoformat(),school_id))
+        policy_id = cur.fetchone()["id"]
+    return {"id":policy_id,"policy_key":key,"version":version,"status":"draft"}
+
+class PolicyDecision(BaseModel):
+    approve: bool
+
+@router.post("/policies/{policy_id}/review")
+def review_policy(policy_id: int, decision: PolicyDecision,
+                  authorization: str | None = Header(None)):
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        school_id = user["school_id"]
+        policy = c.execute(
+            "SELECT status FROM policy_versions WHERE id=? AND school_id=?",
+            (policy_id,school_id)).fetchone()
+        if not policy:
+            raise HTTPException(404, "Policy version not found")
+        if policy["status"] != "draft":
+            raise HTTPException(409, "Only draft versions can be reviewed")
+        if decision.approve:
+            unresolved = conflicts.pending(c,policy_id,school_id)
+            if unresolved:
+                c.commit()
+                raise HTTPException(409, f"{unresolved} unresolved legacy knowledge overlap(s)")
+        status = "approved" if decision.approve else "rejected"
+        c.execute(
+            "UPDATE policy_versions SET status=?,reviewed_at=? WHERE id=? AND school_id=?",
+            (status,datetime.now(timezone.utc).isoformat(),policy_id,school_id))
+    indexed = _reindex()
+    return {"id":policy_id,"status":status,"vector_index_updated":indexed}
