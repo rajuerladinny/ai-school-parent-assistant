@@ -48,8 +48,8 @@ def scan(c, policy_id):
     p=c.execute("SELECT * FROM policy_versions WHERE id=? AND school_id=1", (policy_id,)).fetchone()
     if not p: raise HTTPException(404,"Policy not found")
     for kind, id, _ in candidates(c,p):
-        c.execute("""INSERT OR IGNORE INTO knowledge_conflicts(policy_id,legacy_type,legacy_id)
-                     VALUES(?,?,?)""",(policy_id,kind,id))
+        c.execute("""INSERT INTO knowledge_conflicts(policy_id,legacy_type,legacy_id)
+                     VALUES(?,?,?) ON CONFLICT DO NOTHING""",(policy_id,kind,id))
     # Closed legacy sources resolve their conflicts; reactivation creates open conflicts.
     c.execute("""UPDATE knowledge_conflicts SET status='resolved',resolved_at=CURRENT_TIMESTAMP
         WHERE policy_id=? AND status='open' AND (
