@@ -88,6 +88,9 @@ def search(question: str, limit: int = 4, school_id: int = 1) -> list[dict]:
         output = []
         for i, text in enumerate((result.get("documents") or [[]])[0]):
             metadata = (result.get("metadatas") or [[]])[0][i] or {}
+            # Defense in depth: never trust the vector backend's metadata filter alone.
+            if metadata.get("school_id") != school_id:
+                continue
             distance = (result.get("distances") or [[]])[0][i]
             output.append({"text": text, "source": metadata.get("source", "School information"),
                            "topic": metadata.get("topic", "Document"), "distance": distance})
