@@ -23,4 +23,4 @@ def my_questions(authorization:str|None=Header(None)):
         return [dict(r) for r in c.execute("""SELECT id,question,status,assigned_to,
             CASE WHEN status='resolved' THEN resolution ELSE NULL END AS resolution,
             created_at,updated_at,resolved_at
-            FROM escalations WHERE parent_id=? ORDER BY id DESC""",(parent["id"],))]
+            FROM escalations WHERE parent_id=? AND school_id=? ORDER BY id DESC""",(parent["id"],parent["school_id"]))]
