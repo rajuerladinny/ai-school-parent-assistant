@@ -69,7 +69,7 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
     salt=secrets.token_hex(16)
     with _db() as c:
         try:
-            school=c.execute("SELECT id FROM schools WHERE id=? AND active=1",(item.school_id,)).fetchone()
+            school=c.execute("SELECT id FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone()
             if not school:raise HTTPException(404,"School not found")
             cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?) RETURNING id",
                           (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
@@ -102,7 +102,7 @@ def parent(c,authorization):
     hashed=hashlib.sha256(token.encode()).hexdigest()
     row=c.execute("""SELECT a.id,a.username,a.display_name,a.school_id FROM parent_sessions s
        JOIN parent_accounts a ON a.id=s.parent_id
-       WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=1""",
+       WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE""",
        (hashed,datetime.now(timezone.utc).isoformat())).fetchone()
     if not row:raise HTTPException(401,"Invalid or expired session")
     return row
@@ -130,7 +130,7 @@ def logout(authorization:str|None=Header(None)):
 def disable(parent_id:int,x_admin_key:str|None=Header(None)):
     _admin(x_admin_key)
     with _db() as c:
-        if not c.execute("UPDATE parent_accounts SET enabled=0 WHERE id=? AND enabled=1",
+        if not c.execute("UPDATE parent_accounts SET enabled=FALSE WHERE id=? AND enabled=TRUE",
                          (parent_id,)).rowcount:raise HTTPException(404,"Enabled parent not found")
         c.execute("DELETE FROM parent_sessions WHERE parent_id=?",(parent_id,))
     return {"disabled":True}
