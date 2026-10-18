@@ -167,7 +167,7 @@ def knowledge(x_admin_key:str|None=Header(None)):
 def add(item:Item,x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        cur=c.execute("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?) RETURNING id",tuple(item.model_dump().values()))
+        cur=c.execute("INSERT INTO knowledge(topic,answer,source,school_id) VALUES(?,?,?,1) RETURNING id",tuple(item.model_dump().values()))
         item_id=cur.fetchone()["id"]
     rebuild_index()
     return {"id":item_id,"vector_index_updated":rag.enabled()}
