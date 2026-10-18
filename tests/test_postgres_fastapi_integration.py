@@ -132,6 +132,37 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             denied_reverse=client.patch(f"/api/staff/mine/questions/{question_id}",headers=other_headers,json={
                 "status":"assigned","assigned_to":"otherstaff"})
             assert denied_reverse.status_code==404,denied_reverse.text
+            # School admins can administer only their own school's knowledge.
+            for school_id,username in ((1,"adminone"),(2,"admintwo")):
+                response=client.post("/api/staff-auth/accounts",headers=headers,json={
+                    "username":username,"display_name":"School Administrator",
+                    "password":"secure-admin-password-123","school_id":school_id,"role":"school_admin"})
+                assert response.status_code==201,response.text
+            def admin_headers(username):
+                login=client.post("/api/staff-auth/login",json={
+                    "username":username,"password":"secure-admin-password-123"})
+                assert login.status_code==200,login.text
+                return {"authorization":"Bearer "+login.json()["access_token"]}
+            admin_one=admin_headers("adminone")
+            admin_two=admin_headers("admintwo")
+            assert client.get("/api/school-admin/knowledge").status_code==401
+            assert client.get("/api/school-admin/knowledge",headers=staff_headers).status_code==403
+            assert client.get("/api/school-admin/knowledge",headers=other_headers).status_code==403
+            assert all(row["school_id"]==1 for row in client.get(
+                "/api/school-admin/knowledge",headers=admin_one).json())
+            assert all(row["school_id"]==2 for row in client.get(
+                "/api/school-admin/knowledge",headers=admin_two).json())
+            created_school_two=client.post("/api/school-admin/knowledge",headers=admin_two,json={
+                "topic":"Private School Two","answer":"Only second school can see this",
+                "source":"School Two"} )
+            assert created_school_two.status_code==201,created_school_two.text
+            second_id=created_school_two.json()["id"]
+            assert all(row["id"]!=second_id for row in client.get(
+                "/api/school-admin/knowledge",headers=admin_one).json())
+            assert client.delete(f"/api/school-admin/knowledge/{second_id}",
+                                 headers=admin_one).status_code==404
+            assert client.delete(f"/api/school-admin/knowledge/{second_id}",
+                                 headers=admin_two).status_code==200
             other_parent=client.post("/api/auth/parents",headers=headers,json={
                 "username":"otherparent","display_name":"Other School Parent",
                 "password":"secure-other-parent-123","school_id":2})
