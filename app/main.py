@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, parent_questions
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions
 
 _last_policy_index_date = None
 
@@ -93,6 +93,7 @@ def setup():
             c.execute("ALTER TABLE escalations ADD COLUMN school_id INTEGER NOT NULL DEFAULT 1 REFERENCES schools(id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_escalations_school ON escalations(school_id,status)")
         staff.setup(c)
+        staff_auth.setup(c)
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
@@ -272,3 +273,7 @@ app.include_router(staff.router)
 
 parent_questions.configure(db)
 app.include_router(parent_questions.router)
+
+# School-specific staff login and identity API.
+staff_auth.configure(db,auth)
+app.include_router(staff_auth.router)
