@@ -29,7 +29,7 @@ def setup(c):
 def summary(x_admin_key:str|None=Header(None)):
     _auth(x_admin_key)
     with _db() as c:
-        return {"authenticated_parents":c.execute("SELECT COUNT(*) FROM parent_accounts WHERE enabled=1").fetchone()[0],
+        return {"authenticated_parents":c.execute("SELECT COUNT(*) FROM parent_accounts WHERE enabled=TRUE").fetchone()[0],
                 "parent_read_receipts":c.execute("SELECT COUNT(*) FROM parent_notification_reads").fetchone()[0]}
 
 # Authenticated parent inbox: read receipts are isolated by parent account.
