@@ -21,6 +21,7 @@ def test_migration_and_restore_against_disposable_postgres(tmp_path,monkeypatch)
     from scripts.postgres_bootstrap import initialize_empty
     from scripts.migrate_sqlite_to_postgres import migrate,TABLES
     from scripts.verify_postgres_restore import verify
+    from scripts.postgres_restore_verify import verify as verify_row_counts
     db_file=tmp_path/"source.db"
     monkeypatch.setattr(main,"DB",str(db_file))
     main.setup()
@@ -30,13 +31,16 @@ def test_migration_and_restore_against_disposable_postgres(tmp_path,monkeypatch)
     suffix=uuid.uuid4().hex[:12]
     target="school_migrate_"+suffix
     restored="school_restore_"+suffix
+    verified="school_verify_"+suffix
     admin=_dsn_with_db(dsn,"postgres")
     with psycopg.connect(admin,autocommit=True) as root:
         root.execute(f'CREATE DATABASE "{target}"')
         root.execute(f'CREATE DATABASE "{restored}"')
+        root.execute(f'CREATE DATABASE "{verified}"')
     try:
         target_dsn=_dsn_with_db(dsn,target)
         restore_dsn=_dsn_with_db(dsn,restored)
+        verify_dsn=_dsn_with_db(dsn,verified)
         initialize_empty(target_dsn)
         dry_counts=migrate(db_file,target_dsn,dry_run=True)
         assert dry_counts["schools"]==1
@@ -50,7 +54,12 @@ def test_migration_and_restore_against_disposable_postgres(tmp_path,monkeypatch)
             assert c.execute("SELECT question FROM escalations").fetchone()[0]=="What is the next school event?"
             assert c.execute("SELECT username FROM staff_accounts").fetchone()[0]=="teacher"
         assert verify(target_dsn,restore_dsn)
+        counts=verify_row_counts(target_dsn,verify_dsn)
+        assert counts["schools"]==applied["schools"]
+        assert counts["staff_accounts"]==applied["staff_accounts"]
+        with pytest.raises(ValueError,match="same database|must differ"):
+            verify_row_counts(target_dsn,target_dsn)
     finally:
         with psycopg.connect(admin,autocommit=True) as root:
-            for name in (restored,target):
+            for name in (verified,restored,target):
                 root.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
