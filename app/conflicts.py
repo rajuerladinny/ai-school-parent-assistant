@@ -36,16 +36,16 @@ def candidates(c, policy):
     keys={norm(policy["policy_key"]),norm(policy["title"])}
     keys.discard("")
     result=[]
-    for x in c.execute("SELECT id,topic FROM knowledge WHERE active=1"):
+    for x in c.execute("SELECT id,topic FROM knowledge WHERE active=1 AND school_id=1"):
         if norm(x["topic"]) in keys:
             result.append(("faq",x["id"],x["topic"]))
-    for x in c.execute("SELECT id,title FROM documents WHERE active=1"):
+    for x in c.execute("SELECT id,title FROM documents WHERE active=1 AND school_id=1"):
         if norm(x["title"]) in keys:
             result.append(("document",x["id"],x["title"]))
     return result
 
 def scan(c, policy_id):
-    p=c.execute("SELECT * FROM policy_versions WHERE id=?", (policy_id,)).fetchone()
+    p=c.execute("SELECT * FROM policy_versions WHERE id=? AND school_id=1", (policy_id,)).fetchone()
     if not p: raise HTTPException(404,"Policy not found")
     for kind, id, _ in candidates(c,p):
         c.execute("""INSERT OR IGNORE INTO knowledge_conflicts(policy_id,legacy_type,legacy_id)
@@ -69,7 +69,7 @@ def list_conflicts(x_admin_key: str | None=Header(None)):
     with _db() as c:
         return [dict(r) for r in c.execute("""SELECT cf.*,p.policy_key,p.version,p.title AS policy_title
             FROM knowledge_conflicts cf JOIN policy_versions p ON p.id=cf.policy_id
-            ORDER BY cf.id DESC""")]
+            WHERE p.school_id=1 ORDER BY cf.id DESC""")]
 
 @router.post("/scan/{policy_id}")
 def scan_policy(policy_id:int,x_admin_key: str | None=Header(None)):
@@ -85,7 +85,7 @@ def deactivate(kind:str,item_id:int,x_admin_key: str | None=Header(None)):
     if kind not in ("faq","document"):raise HTTPException(422,"Invalid knowledge type")
     table="knowledge" if kind=="faq" else "documents"
     with _db() as c:
-        if not c.execute(f"UPDATE {table} SET active=0 WHERE id=? AND active=1",(item_id,)).rowcount:
+        if not c.execute(f"UPDATE {table} SET active=0 WHERE id=? AND school_id=1 AND active=1",(item_id,)).rowcount:
             raise HTTPException(404,"Active knowledge item not found")
         c.execute("""UPDATE knowledge_conflicts SET status='resolved',resolved_at=CURRENT_TIMESTAMP
             WHERE legacy_type=? AND legacy_id=? AND status='open'""",(kind,item_id))
@@ -98,14 +98,14 @@ def activate(kind:str,item_id:int,x_admin_key: str | None=Header(None)):
     if kind not in ("faq","document"):raise HTTPException(422,"Invalid knowledge type")
     table="knowledge" if kind=="faq" else "documents"
     with _db() as c:
-        existing=c.execute(f"SELECT * FROM {table} WHERE id=? AND active=0",(item_id,)).fetchone()
+        existing=c.execute(f"SELECT * FROM {table} WHERE id=? AND school_id=1 AND active=0",(item_id,)).fetchone()
         if not existing: raise HTTPException(404,"Inactive knowledge item not found")
         topic=existing["topic"] if kind=="faq" else existing["title"]
         from . import policies
         for policy in policies.current_versions(c):
             if norm(topic) in {norm(policy["policy_key"]),norm(policy["title"])}:
                 raise HTTPException(409,"Current approved policy covers this topic; cannot reactivate outdated knowledge")
-        if not c.execute(f"UPDATE {table} SET active=1 WHERE id=? AND active=0",(item_id,)).rowcount:
+        if not c.execute(f"UPDATE {table} SET active=1 WHERE id=? AND school_id=1 AND active=0",(item_id,)).rowcount:
             raise HTTPException(404,"Inactive knowledge item not found")
         # Reopening conflicts prevents silently reintroducing old facts.
         c.execute("""UPDATE knowledge_conflicts SET status='open',resolved_at=NULL
