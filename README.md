@@ -140,3 +140,8 @@ FAQ, uploaded documents and policy versions now carry `school_id`, existing reco
 ## PostgreSQL migration — phase 1: schema validation
 
 `migrations/postgresql/001_initial.sql` defines a tenant-aware PostgreSQL 16 schema. `.github/workflows/postgres-schema.yml` runs the schema against a temporary PostgreSQL database and checks per-school policy version uniqueness. This **does not migrate existing SQLite data** or switch the API's runtime connection to PostgreSQL. The application remains SQLite-only and refuses production startup with SQLite. Do not run this schema against an existing production database without reviewing migration/version tracking, data retention, credentials, backup and rollback procedures. Next phases must implement the PostgreSQL repository adapter, audited SQLite-to-Postgres data transformation, verification and restore drills.
+
+
+## Experimental SQLite to PostgreSQL transfer utility
+
+`scripts/migrate_sqlite_to_postgres.py` can copy a limited set of foundational tables from a **quiesced**, backed-up SQLite database to an **empty** PostgreSQL schema. It defaults to a rollback-only dry run; `--apply` commits after count checks. This utility is **not a complete migration**: it does not yet transfer staff workflows, all session/token state, conflict history or vector embeddings, nor does it change the application's SQLite runtime. Do not use with real school data until all tables and foreign keys are covered, end-to-end checks pass, and an approved backup/rollback procedure is tested. ChromaDB is a separate index and must be rebuilt from approved, tenant-scoped source records after a migration.
