@@ -107,6 +107,11 @@ def parent(c,authorization):
     if not row:raise HTTPException(401,"Invalid or expired session")
     return row
 
+def require_demo_school(parent_row):
+    """Fail closed until all tenant-scoped data and RAG paths are implemented."""
+    if parent_row["school_id"] != 1:
+        raise HTTPException(403,"This school is not yet enabled for parent services")
+
 @router.get("/me")
 def me(authorization:str|None=Header(None)):
     with _db() as c:
