@@ -238,7 +238,7 @@ def chat(q:Question,authorization:str|None=Header(None)):
         with db() as c:
             parent_auth.require_demo_school(parent_auth.parent(c,authorization))
     ensure_current_policy_index()
-    results=rag.search(q.question,limit=4)
+    results=rag.search(q.question,limit=4,school_id=1)
     # Avoid confident answers when semantic matches are weak.
     relevant=[r for r in results if r.get("distance",1.0)<=float(os.getenv("RAG_MAX_DISTANCE","0.62"))]
     if relevant:
