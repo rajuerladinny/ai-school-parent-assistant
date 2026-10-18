@@ -5,7 +5,9 @@ school_id supplied by the caller; the tenant comes from the bearer principal.
 """
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from . import staff_auth, conflicts, policies
+from . import staff_auth, conflicts, policies, auth
+import secrets
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -223,3 +225,36 @@ def deactivate_legacy(kind: str, item_id: int,
             (kind,item_id,school_id))
     indexed = _reindex()
     return {"deactivated":True,"vector_index_updated":indexed}
+
+class NewParent(BaseModel):
+    username: str = Field(min_length=3,max_length=80,pattern=r"^[a-zA-Z0-9_.-]+$")
+    display_name: str = Field(min_length=2,max_length=80)
+    password: str = Field(min_length=12,max_length=128)
+
+@router.post("/parents", status_code=201)
+def create_parent(item: NewParent, authorization: str | None = Header(None)):
+    salt = secrets.token_hex(16)
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        try:
+            cur = c.execute(
+                "INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) "
+                "VALUES(?,?,?,?,?) RETURNING id",
+                (item.username.lower(),item.display_name.strip(),salt,
+                 auth.digest(item.password,salt),school_id))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "Username already exists")
+        parent_id = cur.fetchone()["id"]
+    return {"id":parent_id,"username":item.username.lower(),"role":"parent"}
+
+@router.post("/parents/{parent_id}/disable")
+def disable_parent(parent_id: int, authorization: str | None = Header(None)):
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        result = c.execute(
+            "UPDATE parent_accounts SET enabled=FALSE WHERE id=? AND school_id=? AND enabled=TRUE",
+            (parent_id,school_id))
+        if not result.rowcount:
+            raise HTTPException(404, "Enabled parent not found")
+        c.execute("DELETE FROM parent_sessions WHERE parent_id=?", (parent_id,))
+    return {"disabled":True}
