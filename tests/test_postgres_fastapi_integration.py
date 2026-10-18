@@ -255,6 +255,30 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert client.post(f"/api/school-admin/parents/{new_parent_id}/disable",
                 headers=admin_two).status_code==200
             assert client.get("/api/auth/me",headers=new_headers).status_code==401
+            new_staff=client.post("/api/school-admin/staff",headers=admin_two,json={
+                "username":"admincreatedstaff","display_name":"Admin Created Staff",
+                "password":"secure-created-staff-123","role":"staff"})
+            assert new_staff.status_code==201,new_staff.text
+            new_staff_id=new_staff.json()["id"]
+            assert new_staff.json()["school_id"]==2
+            assert client.post("/api/school-admin/staff",headers=admin_two,json={
+                "username":"privilegeescalation","display_name":"Escalation Attempt",
+                "password":"secure-created-staff-123","role":"school_admin"}).status_code==422
+            assert client.post("/api/school-admin/staff",headers=staff_headers,json={
+                "username":"staffcreatedstaff","display_name":"Staff Attempt",
+                "password":"secure-created-staff-123","role":"staff"}).status_code==403
+            assert client.post(f"/api/school-admin/staff/{new_staff_id}/disable",
+                headers=admin_one).status_code==404
+            staff_created_login=client.post("/api/staff-auth/login",json={
+                "username":"admincreatedstaff","password":"secure-created-staff-123"})
+            assert staff_created_login.status_code==200,staff_created_login.text
+            staff_created_headers={"authorization":"Bearer "+staff_created_login.json()["access_token"]}
+            assert client.get("/api/staff-auth/me",headers=staff_created_headers).json()["school_id"]==2
+            assert client.post(f"/api/school-admin/staff/{new_staff_id}/disable",
+                headers=admin_two).status_code==200
+            assert client.get("/api/staff-auth/me",headers=staff_created_headers).status_code==401
+            assert client.post(f"/api/school-admin/staff/{new_staff_id}/disable",
+                headers=admin_two).status_code==404
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
