@@ -78,6 +78,8 @@ def rebuild(records: Iterable[dict]) -> bool:
         return False
 
 def search(question: str, limit: int = 4, school_id: int = 1) -> list[dict]:
+    if not isinstance(school_id, int) or isinstance(school_id, bool) or school_id < 1:
+        raise ValueError("A valid school_id is required for retrieval")
     if not _load() or _collection.count() == 0:
         return []
     try:
