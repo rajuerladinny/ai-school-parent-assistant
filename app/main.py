@@ -1,14 +1,37 @@
 import os, sqlite3, secrets, re, io
 from datetime import datetime, timezone, date
 from pathlib import Path
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import HTMLResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
 from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, parent_questions
 
 _last_policy_index_date = None
 
-app=FastAPI(title="School Parent Assistant with RAG")
+app=FastAPI(title="School Parent Assistant with RAG",
+            docs_url=None if os.getenv("SCHOOL_ENV")=="production" else "/docs",
+            redoc_url=None if os.getenv("SCHOOL_ENV")=="production" else "/redoc")
+if os.getenv("SCHOOL_ENV")=="production":
+    if not os.getenv("SCHOOL_ADMIN_KEY") or len(os.environ["SCHOOL_ADMIN_KEY"])<32:
+        raise RuntimeError("Production requires a random SCHOOL_ADMIN_KEY of at least 32 characters")
+    hosts=[x.strip() for x in os.getenv("SCHOOL_ALLOWED_HOSTS","").split(",") if x.strip()]
+    if not hosts or "*" in hosts:
+        raise RuntimeError("Production requires explicit SCHOOL_ALLOWED_HOSTS")
+    app.add_middleware(TrustedHostMiddleware,allowed_hosts=hosts)
+    if os.getenv("SCHOOL_ENFORCE_HTTPS")=="1":
+        app.add_middleware(HTTPSRedirectMiddleware)
+
+@app.middleware("http")
+async def response_headers(request:Request,call_next):
+    response=await call_next(request)
+    response.headers["X-Content-Type-Options"]="nosniff"
+    response.headers["Referrer-Policy"]="no-referrer"
+    response.headers["X-Frame-Options"]="DENY"
+    response.headers["Content-Security-Policy"]="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    response.headers["Cache-Control"]="no-store"
+    return response
 DB=os.getenv("SCHOOL_DB","school.db")
 MAX_UPLOAD=5*1024*1024
 SAMPLE=[
@@ -19,7 +42,7 @@ SAMPLE=[
 ("Events","No upcoming events have been published in this demo.","Events calendar"),
 ("Contact","Contact the school office between 9 AM and 4 PM on weekdays.","School handbook")]
 def db():
-    c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
+    c=sqlite3.connect(DB,timeout=10);c.row_factory=sqlite3.Row;c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA busy_timeout=10000');return c
 def records_for_index():
     with db() as c:
         records=[]
@@ -108,7 +131,8 @@ def generate_grounded_answer(question, passages):
 def health():
     return {"status":"ok","vector_search_enabled":rag.enabled(),"local_generator_configured":bool(os.getenv("OLLAMA_BASE_URL"))}
 @app.get("/api/knowledge")
-def knowledge():
+def knowledge(x_admin_key:str|None=Header(None)):
+    auth(x_admin_key)
     with db() as c:return [dict(x) for x in c.execute("SELECT * FROM knowledge ORDER BY id")]
 @app.post("/api/knowledge",status_code=201)
 def add(item:Item,x_admin_key:str|None=Header(None)):
@@ -179,6 +203,11 @@ def delete_document(id:int,x_admin_key:str|None=Header(None)):
     return {"deleted":True}
 @app.post("/api/chat")
 def chat(q:Question,authorization:str|None=Header(None)):
+    if os.getenv("SCHOOL_ENV")=="production" and not authorization:
+        raise HTTPException(401,"Parent login required")
+    if authorization:
+        with db() as c:
+            parent_auth.parent(c,authorization)
     ensure_current_policy_index()
     results=rag.search(q.question,limit=4)
     # Avoid confident answers when semantic matches are weak.
