@@ -101,3 +101,10 @@ Admins create parent accounts using `POST /api/auth/parents` with `X-Admin-Key`,
 When parent chat cannot confidently answer a question, it enters the existing `escalations` queue. Admins can now list and filter questions using `GET /api/staff/questions?status=open|assigned|resolved`, assign questions to a named staff member, and record a verified resolution via `PATCH /api/staff/questions/{id}` with JSON `{\"status\":\"assigned\",\"assigned_to\":\"Office team\"}` or `{\"status\":\"resolved\",\"resolution\":\"Verified answer\"}`. An event history is available via `GET /api/staff/questions/{id}/history`. All routes require `X-Admin-Key`; the admin dashboard provides assignment, resolution and history controls.
 
 **Limitations:** Staff assignees are text labels, not authenticated staff identities. Resolutions are visible only to administrators; there is no parent-to-question association or parent delivery yet. The workflow records administrative changes but does not automatically promote answers to the approved RAG knowledge base. Use verified school information only; do not enter student-sensitive data.
+
+
+## Feature 9: Parent question tracking and staff responses
+
+When a logged-in parent asks an unanswered question through `POST /api/chat` with their `Authorization: Bearer <token>` header, the escalation is linked to their parent account and the response includes an `escalation_id`. Parents can review only their own tickets using `GET /api/parent/questions` with the same authorization header. Open and assigned tickets show their status; resolved tickets also show the verified staff response entered through the Feature 8 admin workflow. The parent UI includes **My staff questions**. Anonymous chat still works, but anonymous tickets cannot be claimed later and are only visible to administrators.
+
+**Privacy:** Parent ownership is derived from the authenticated session, never a client-supplied parent ID. Other parents cannot read someone else's tickets. This is in-app pull-based tracking, not push/email/SMS delivery. Avoid sensitive student information until a production-grade identity and privacy design is in place.
