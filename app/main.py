@@ -292,5 +292,5 @@ staff_auth.configure(db,auth)
 app.include_router(staff_auth.router)
 
 # Bearer-authenticated, tenant-scoped administrative replacement API.
-school_admin.configure(db,rebuild_index)
+school_admin.configure(db,rebuild_index,extract_text)
 app.include_router(school_admin.router)
