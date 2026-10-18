@@ -108,3 +108,8 @@ When parent chat cannot confidently answer a question, it enters the existing `e
 When a logged-in parent asks an unanswered question through `POST /api/chat` with their `Authorization: Bearer <token>` header, the escalation is linked to their parent account and the response includes an `escalation_id`. Parents can review only their own tickets using `GET /api/parent/questions` with the same authorization header. Open and assigned tickets show their status; resolved tickets also show the verified staff response entered through the Feature 8 admin workflow. The parent UI includes **My staff questions**. Anonymous chat still works, but anonymous tickets cannot be claimed later and are only visible to administrators.
 
 **Privacy:** Parent ownership is derived from the authenticated session, never a client-supplied parent ID. Other parents cannot read someone else's tickets. This is in-app pull-based tracking, not push/email/SMS delivery. Avoid sensitive student information until a production-grade identity and privacy design is in place.
+
+
+## Free online demo deployment (Render)
+
+The repository includes a `render.yaml` Blueprint for a **free, fictional-data-only** FastAPI deployment. See [Render Free deployment instructions](docs/RENDER_FREE_DEPLOYMENT.md) for setup, verification and limitations. The free deployment uses keyword FAQ fallback rather than the optional local embedding model. SQLite lives on an **ephemeral** filesystem, so accounts and changes can disappear. Do **not** use real parent or student data. Deployment must be authorized and initiated in your own Render account; adding the Blueprint does not deploy automatically.
