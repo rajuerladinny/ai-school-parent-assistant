@@ -145,3 +145,8 @@ FAQ, uploaded documents and policy versions now carry `school_id`, existing reco
 ## Experimental SQLite to PostgreSQL transfer utility
 
 `scripts/migrate_sqlite_to_postgres.py` can copy a limited set of foundational tables from a **quiesced**, backed-up SQLite database to an **empty** PostgreSQL schema. It defaults to a rollback-only dry run; `--apply` commits after count checks. This utility is **not a complete migration**: it does not yet transfer staff workflows, all session/token state, conflict history or vector embeddings, nor does it change the application's SQLite runtime. Do not use with real school data until all tables and foreign keys are covered, end-to-end checks pass, and an approved backup/rollback procedure is tested. ChromaDB is a separate index and must be rebuilt from approved, tenant-scoped source records after a migration.
+
+
+## Staff identity milestone (not production authentication)
+
+Individual school-linked `school_admin` and `staff` accounts can be provisioned through `POST /api/staff-auth/accounts` using the legacy bootstrap administrator key. Staff sign in at `/api/staff-auth/login` and use bearer credentials on `/api/staff/mine/questions`. Queries and updates are filtered by the authenticated school. This is **not complete production RBAC**: the legacy shared-admin-key routes remain available for demo school 1, login throttling, account lifecycle, password recovery, bootstrap rotation and audited permission enforcement are still required. No real school onboarding is supported.
