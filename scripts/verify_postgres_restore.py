@@ -15,6 +15,8 @@ def run(*args,env=None):
 
 
 def verify(source_dsn,restore_dsn):
+    if not source_dsn:
+        raise ValueError("Source database DSN is required")
     if source_dsn==restore_dsn:
         raise ValueError("Source and restore database DSNs must differ")
     if not restore_dsn:
@@ -28,8 +30,8 @@ def verify(source_dsn,restore_dsn):
             "--dbname",restore_dsn,archive)
         import psycopg
         with psycopg.connect(source_dsn) as source,psycopg.connect(restore_dsn) as restored:
-            for table in ("schools","parent_accounts","knowledge","documents","policy_versions",
-                          "escalations","parent_notification_reads"):
+            from scripts.migrate_sqlite_to_postgres import TABLES
+            for table in TABLES:
                 with source.cursor() as s,restored.cursor() as d:
                     s.execute(f"SELECT COUNT(*) FROM {table}")
                     d.execute(f"SELECT COUNT(*) FROM {table}")
