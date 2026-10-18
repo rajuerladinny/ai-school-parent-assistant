@@ -56,6 +56,14 @@ python -m pytest -q
 
 `GET /api/health` reports whether vector search dependencies are available. The CI job installs the lightweight base requirements, so it tests upload, permissions, fallback behavior and endpoints without downloading the embedding model.
 
+## Policy management (versioned approvals)
+
+The admin dashboard now includes **Policy versions**. Upload a policy PDF/DOCX/TXT/MD with a stable key (for example `fee-policy`), a title, and a YYYY-MM-DD effective date. Every upload creates a new **draft** version. An administrator must approve or reject it; rejected versions stay in the history but are not searchable. Approved future versions become applicable on their effective date; the system rechecks the date when parents ask questions and rebuilds the vector index when the day changes. The latest *effective, approved* version of each policy key is indexed. Version history is retained in SQLite.
+
+API: `POST /api/policies` (multipart, admin), `GET /api/policies` (admin), `POST /api/policies/{id}/review` (admin JSON `{\"approve\":true}`), `GET /api/policies/active` (public metadata).
+
+**MVP caveats:** The shared admin key is not separate reviewer identity or two-person approval. Legacy FAQs and unversioned documents remain searchable and may conflict with policies until migrated. Changes are reindexed across the whole knowledge collection rather than incrementally. Date-based activation follows the server's local calendar date, so configure the server to the school's timezone. Automatic parent notifications and tamper-evident audit logs are not implemented.
+
 ## Important limitations
 
 **Prototype only; do not deploy publicly or use with real student data.** This MVP does not have a production staff identity system, parent verification, tenant isolation, rate limiting, robust audit controls, OCR, or school-grade data governance. The admin key is a shared secret, not individual staff authentication. RAG can retrieve irrelevant passages; the similarity threshold and escalation path reduce but do not eliminate errors. Staff must verify answers about fees, dates, health, safety and school policies.
