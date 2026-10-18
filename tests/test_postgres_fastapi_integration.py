@@ -76,6 +76,21 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             staff_headers={"authorization":"Bearer "+staff_login.json()["access_token"]}
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==200
             assert client.get("/api/staff/mine/questions",headers=staff_headers).status_code==200
+            with psycopg.connect(target) as seeded:
+                seeded.execute("INSERT INTO escalations(school_id,question) VALUES(1,'Where is the bus?')")
+            mine=client.get("/api/staff/mine/questions",headers=staff_headers)
+            assert mine.status_code==200,mine.text
+            assert len(mine.json())==1
+            question_id=mine.json()[0]["id"]
+            assignment=client.patch(f"/api/staff/mine/questions/{question_id}",headers=staff_headers,json={
+                "status":"assigned","assigned_to":"pgstaff"})
+            assert assignment.status_code==200,assignment.text
+            resolution=client.patch(f"/api/staff/mine/questions/{question_id}",headers=staff_headers,json={
+                "status":"resolved","resolution":"Bus information sent"})
+            assert resolution.status_code==200,resolution.text
+            history=client.get(f"/api/staff/questions/{question_id}/history",headers=headers)
+            assert history.status_code==200,history.text
+            assert [event["action"] for event in history.json()]==["assigned","resolved"]
             assert client.post("/api/staff-auth/logout",headers=staff_headers).status_code==200
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
     finally:
