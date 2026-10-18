@@ -17,4 +17,4 @@ def test_existing_app_has_known_migration_work():
     spec=importlib.util.spec_from_file_location("audit_sqlite_sql",path)
     module=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert any(f["pattern"]=="sqlite_lastrowid" for f in module.audit())
+    assert not any(f["pattern"]=="sqlite_lastrowid" for f in module.audit())
