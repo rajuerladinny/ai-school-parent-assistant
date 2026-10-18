@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts
+from . import rag, policies, conflicts, notifications
 
 _last_policy_index_date = None
 
@@ -50,6 +50,7 @@ def setup():
             content TEXT NOT NULL, uploaded_at TEXT NOT NULL)""")
         policies.setup(c)
         conflicts.setup(c)
+        notifications.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
@@ -205,3 +206,6 @@ app.include_router(policies.router)
 
 conflicts.configure(db, auth, rebuild_index)
 app.include_router(conflicts.router)
+
+notifications.configure(db, auth)
+app.include_router(notifications.router)
