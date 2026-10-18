@@ -116,3 +116,12 @@ async def upload_document(
     indexed = _reindex()
     return {"id": document_id, "filename": filename, "characters": len(content),
             "vector_index_updated": indexed}
+
+@router.get("/policies")
+def list_policies(authorization: str | None = Header(None)):
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        return [dict(row) for row in c.execute(
+            "SELECT id,policy_key,version,title,filename,status,effective_date,created_at,reviewed_at "
+            "FROM policy_versions WHERE school_id=? ORDER BY policy_key,version DESC",
+            (user["school_id"],))]
