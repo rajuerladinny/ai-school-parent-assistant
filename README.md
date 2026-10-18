@@ -130,3 +130,8 @@ The schema now includes a `schools` registry and associates parent accounts with
 ## Tenant isolation: fail-closed phase 1
 
 School ID 1 is the **only** school allowed to access the existing shared parent chat/RAG, notification inbox, and question history. Parent sessions linked to any other school receive HTTP 403 on these endpoints. This is intentional: the existing FAQ, policy, document and vector indexes are not tenant-partitioned. It prevents cross-school exposure via authenticated parent endpoints while tenant-specific persistence, staff/admin scoping, retrieval and migrations are built. **This is not completed multi-school isolation** and not permission to onboard real schools. The public demo chat remains available when `SCHOOL_ENV` is not production; production mode requires a parent session. School ID 1 must remain fictional demonstration data.
+
+
+## Tenant content schema phase 2 (incomplete)
+
+FAQ, uploaded documents and policy versions now carry `school_id`, existing records are assigned to fictional demo school ID 1, and Chroma embeddings carry a school filter. Legacy admin endpoints are restricted to school 1. Parent accounts in other schools are still denied access to shared parent content by the earlier fail-closed guard. **This is a schema and filtering milestone only:** it does not enable multi-school onboarding, per-school admin RBAC, fully partitioned indexes, tenant-specific staff workflow, PostgreSQL, or production operation. The existing global uniqueness of `policy_versions(policy_key,version)` must be replaced with a tenant-scoped uniqueness constraint in a tested migration before multiple schools can author policies.

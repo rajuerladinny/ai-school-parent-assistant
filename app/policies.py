@@ -27,21 +27,24 @@ def setup(connection):
         status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved','rejected')),
         effective_date TEXT NOT NULL, created_at TEXT NOT NULL,
         reviewed_at TEXT, UNIQUE(policy_key, version))""")
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_policy_versions ON policy_versions(policy_key,status,effective_date)")
+    cols={r[1] for r in connection.execute("PRAGMA table_info(policy_versions)")}
+    if "school_id" not in cols:
+        connection.execute("ALTER TABLE policy_versions ADD COLUMN school_id INTEGER NOT NULL DEFAULT 1 REFERENCES schools(id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_policy_versions_school ON policy_versions(school_id,policy_key,status,effective_date)")
 
-def current_versions(connection, as_of=None):
+def current_versions(connection, as_of=None, school_id=1):
     as_of = as_of or date.today().isoformat()
     # A newer approved version supersedes an older one only once effective.
-    return connection.execute("""SELECT p.* FROM policy_versions p WHERE p.status='approved'
+    return connection.execute("""SELECT p.* FROM policy_versions p WHERE p.school_id=? AND p.status='approved'
         AND p.effective_date<=? AND p.version=(
             SELECT MAX(q.version) FROM policy_versions q
-            WHERE q.policy_key=p.policy_key AND q.status='approved' AND q.effective_date<=?
-        ) ORDER BY p.policy_key""", (as_of, as_of)).fetchall()
+            WHERE q.school_id=p.school_id AND q.policy_key=p.policy_key AND q.status='approved' AND q.effective_date<=?
+        ) ORDER BY p.policy_key""", (school_id, as_of, as_of)).fetchall()
 
-def active_records(connection, as_of=None):
+def active_records(connection, as_of=None, school_id=1):
     return [{"id":f"policy-{p['id']}", "topic":p["title"],
              "source":f"{p['title']} v{p['version']} ({p['filename']})",
-             "text":p["content"]} for p in current_versions(connection, as_of)]
+             "text":p["content"]} for p in current_versions(connection, as_of, school_id)]
 
 def _authorized(key):
     _auth(key)
@@ -54,7 +57,7 @@ def _validate_date(value):
 def list_policies(x_admin_key: str | None = Header(None)):
     _authorized(x_admin_key)
     with _db() as c:
-        return [dict(x) for x in c.execute("SELECT id,policy_key,version,title,filename,status,effective_date,created_at,reviewed_at FROM policy_versions ORDER BY policy_key,version DESC")]
+        return [dict(x) for x in c.execute("SELECT id,policy_key,version,title,filename,status,effective_date,created_at,reviewed_at FROM policy_versions WHERE school_id=1 ORDER BY policy_key,version DESC")]
 
 @router.get("/active")
 def active_policies():
@@ -84,12 +87,12 @@ async def upload_policy(policy_key: str = Form(...), title: str = Form(...),
     with _db() as c:
         # IMMEDIATE transaction prevents concurrent uploads getting the same version.
         c.execute("BEGIN IMMEDIATE")
-        version = c.execute("SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=?", (policy_key,)).fetchone()[0]
+        version = c.execute("SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=1", (policy_key,)).fetchone()[0]
         cur = c.execute("""INSERT INTO policy_versions
-            (policy_key,version,title,filename,content,effective_date,created_at)
-            VALUES (?,?,?,?,?,?,?)""",
+            (policy_key,version,title,filename,content,effective_date,created_at,school_id)
+            VALUES (?,?,?,?,?,?,?,?)""",
             (policy_key,version,title,filename,content,effective_date,
-             datetime.now(timezone.utc).isoformat()))
+             datetime.now(timezone.utc).isoformat(),1))
         return {"id":cur.lastrowid, "policy_key":policy_key, "version":version,
                 "status":"draft", "note":"Not visible to parents until approved and effective."}
 
@@ -100,7 +103,7 @@ class Decision(BaseModel):
 def review_policy(policy_id: int, decision: Decision, x_admin_key: str | None = Header(None)):
     _authorized(x_admin_key)
     with _db() as c:
-        row = c.execute("SELECT status FROM policy_versions WHERE id=?", (policy_id,)).fetchone()
+        row = c.execute("SELECT status FROM policy_versions WHERE id=? AND school_id=1", (policy_id,)).fetchone()
         if not row: raise HTTPException(404, "Policy version not found")
         if row["status"] != "draft": raise HTTPException(409, "Only draft versions can be reviewed")
         if decision.approve:
@@ -110,7 +113,7 @@ def review_policy(policy_id: int, decision: Decision, x_admin_key: str | None = 
                 c.commit()
                 raise HTTPException(409, f"{unresolved} unresolved legacy knowledge overlap(s); deactivate outdated items before approval")
         status = "approved" if decision.approve else "rejected"
-        c.execute("UPDATE policy_versions SET status=?,reviewed_at=? WHERE id=?",
+        c.execute("UPDATE policy_versions SET status=?,reviewed_at=? WHERE id=? AND school_id=1",
                   (status,datetime.now(timezone.utc).isoformat(),policy_id))
     updated = _reindex()
     return {"id":policy_id, "status":status, "vector_index_updated":updated}

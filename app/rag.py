@@ -59,7 +59,8 @@ def rebuild(records: Iterable[dict]) -> bool:
         for i, chunk in enumerate(chunk_text(str(record.get("text", "")))):
             docs.append(chunk)
             ids.append(hashlib.sha256(f"{record.get('id')}:{i}:{chunk}".encode()).hexdigest()[:32])
-            metadatas.append({"source": str(record.get("source", "School information"))[:200],
+            metadatas.append({"school_id":int(record.get("school_id",1)),
+                              "source": str(record.get("source", "School information"))[:200],
                               "topic": str(record.get("topic", "Document"))[:200]})
     fingerprint = hashlib.sha256("\n".join(ids).encode()).hexdigest()
     if fingerprint == _last_fingerprint:
@@ -76,12 +77,12 @@ def rebuild(records: Iterable[dict]) -> bool:
     except Exception:
         return False
 
-def search(question: str, limit: int = 4) -> list[dict]:
+def search(question: str, limit: int = 4, school_id: int = 1) -> list[dict]:
     if not _load() or _collection.count() == 0:
         return []
     try:
         vector = _model.encode([question], normalize_embeddings=True).tolist()[0]
-        result = _collection.query(query_embeddings=[vector], n_results=min(limit, _collection.count()))
+        result = _collection.query(query_embeddings=[vector], where={"school_id":school_id}, n_results=min(limit, _collection.count()))
         output = []
         for i, text in enumerate((result.get("documents") or [[]])[0]):
             metadata = (result.get("metadatas") or [[]])[0][i] or {}
