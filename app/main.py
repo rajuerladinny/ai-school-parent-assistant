@@ -170,8 +170,11 @@ def chat(q:Question):
         return {"answer":answer,"source":", ".join(dict.fromkeys(r["source"] for r in relevant)),
                 "sources":[{"source":r["source"],"topic":r["topic"],"distance":round(r["distance"],3)} for r in relevant],
                 "needs_staff":False,"retrieval":"chroma-vector","generator":generator}
-    fallback=fallback_search(q.question)
-    if fallback:return fallback
+    # Once semantic search is active, do not override a weak vector match with
+    # keyword matching; that could turn an unrelated FAQ into a confident answer.
+    if not rag.enabled():
+        fallback=fallback_search(q.question)
+        if fallback:return fallback
     with db() as c:c.execute("INSERT INTO escalations(question) VALUES(?)",(q.question,))
     return {"answer":"I don't have verified information for that. Your question has been sent for school staff review.",
             "source":None,"needs_staff":True,"retrieval":"no-confident-match"}
