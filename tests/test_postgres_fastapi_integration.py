@@ -51,6 +51,23 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert escalations.status_code==200,escalations.text
             policy=client.get("/api/policies/active")
             assert policy.status_code==200,policy.text
+            doc=client.post("/api/documents",headers=headers,
+                data={"title":"School Transport"},files={"file":("transport.txt",b"School transport routes operate every weekday morning and evening.","text/plain")})
+            assert doc.status_code==201,doc.text
+            doc_id=doc.json()["id"]
+            assert any(x["id"]==doc_id for x in client.get("/api/documents",headers=headers).json())
+            assert client.delete(f"/api/documents/{doc_id}",headers=headers).status_code==200
+            assert all(x["id"]!=doc_id for x in client.get("/api/documents",headers=headers).json())
+            policy_upload=client.post("/api/policies",headers=headers,
+                data={"policy_key":"uniform","title":"Uniform Rules","effective_date":"2026-01-01"},
+                files={"file":("uniform.txt",b"Students should wear the prescribed uniform on every school day.","text/plain")})
+            assert policy_upload.status_code==201,policy_upload.text
+            policy_id=policy_upload.json()["id"]
+            assert any(x["id"]==policy_id for x in client.get("/api/policies",headers=headers).json())
+            review=client.post(f"/api/policies/{policy_id}/review",headers=headers,json={"approve":True})
+            assert review.status_code==200,review.text
+            assert review.json()["status"]=="approved"
+            assert any(x["title"]=="Uniform Rules" for x in client.get("/api/policies/active").json())
             staff=client.get("/api/staff/mine/questions")
             assert staff.status_code==401,staff.text
             parent=client.post("/api/auth/parents",headers=headers,json={
