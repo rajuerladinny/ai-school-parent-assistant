@@ -1,10 +1,12 @@
 import os, sqlite3, secrets, re, io
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from . import rag
+from . import rag, policies
+
+_last_policy_index_date = None
 
 app=FastAPI(title="School Parent Assistant with RAG")
 DB=os.getenv("SCHOOL_DB","school.db")
@@ -27,9 +29,18 @@ def records_for_index():
         for r in c.execute("SELECT id,filename,title,content FROM documents"):
             records.append({"id":"doc-"+str(r["id"]),"topic":r["title"],
                             "source":r["filename"],"text":r["content"]})
+        records.extend(policies.active_records(c))
         return records
 def rebuild_index():
-    return rag.rebuild(records_for_index())
+    global _last_policy_index_date
+    updated = rag.rebuild(records_for_index())
+    if updated:
+        _last_policy_index_date = date.today().isoformat()
+    return updated
+
+def ensure_current_policy_index():
+    if _last_policy_index_date != date.today().isoformat():
+        rebuild_index()
 def setup():
     with db() as c:
         c.execute("CREATE TABLE IF NOT EXISTS knowledge(id INTEGER PRIMARY KEY, topic TEXT, answer TEXT, source TEXT)")
@@ -37,6 +48,7 @@ def setup():
         c.execute("""CREATE TABLE IF NOT EXISTS documents(
             id INTEGER PRIMARY KEY, filename TEXT NOT NULL, title TEXT NOT NULL,
             content TEXT NOT NULL, uploaded_at TEXT NOT NULL)""")
+        policies.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
@@ -162,6 +174,7 @@ def delete_document(id:int,x_admin_key:str|None=Header(None)):
     return {"deleted":True}
 @app.post("/api/chat")
 def chat(q:Question):
+    ensure_current_policy_index()
     results=rag.search(q.question,limit=4)
     # Avoid confident answers when semantic matches are weak.
     relevant=[r for r in results if r.get("distance",1.0)<=float(os.getenv("RAG_MAX_DISTANCE","0.62"))]
@@ -184,3 +197,7 @@ def escalations(x_admin_key:str|None=Header(None)):
     with db() as c:return [dict(x) for x in c.execute("SELECT * FROM escalations ORDER BY id DESC")]
 @app.get("/",response_class=HTMLResponse)
 def home():return Path(__file__).with_name("index.html").read_text()
+
+# Policy module uses the same admin key, SQLite store and document parser.
+policies.configure(db, auth, extract_text, rebuild_index)
+app.include_router(policies.router)
