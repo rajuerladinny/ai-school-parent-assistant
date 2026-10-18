@@ -35,3 +35,14 @@ Every checkbox requires a linked implementation/test or verification evidence. A
 - [x] School-local assignee validation and protection against staff changing another staff member's assigned question committed; both School Assistant CI run 247 and PostgreSQL Schema Integration run 109 passed. These runs do not independently prove cross-tenant API behavior.
 
 The completed subitems above do **not** satisfy the unchecked top-level release gates. Production readiness remains **BLOCKED**.
+
+## CI evidence update — 2026-10-18
+
+- [x] **Disposable PostgreSQL migration and recovery integration drill:** PostgreSQL Schema Integration [run 117](https://github.com/rajuerladinny/ai-school-parent-assistant/actions/runs/39144631187) passed on commit `2b0586219d413881c505a6848f0af8279e4b3219`. The test provisions disposable PostgreSQL databases, migrates SQLite data, verifies dry-run rollback and counts, then executes `pg_dump` and `pg_restore` and compares all application-table counts.
+- [x] **Standard CI:** School Assistant CI [run 255](https://github.com/rajuerladinny/ai-school-parent-assistant/actions/runs/39144631253) passed on the same commit.
+- [ ] **Production PostgreSQL runtime:** still intentionally blocked by `app/database_config.py`; no live PostgreSQL FastAPI endpoint tests.
+- [ ] **Complete tenant authorization:** demo-school-only parent guard and shared admin-key endpoints remain.
+- [ ] **Production recovery readiness:** disposable CI restore passed; no production-environment restore, RPO/RTO evidence, or operational signoff.
+- [ ] **Security assessment:** no full endpoint authorization matrix or production penetration/security review.
+
+Passing CI verifies the isolated drill, not production operational readiness.
