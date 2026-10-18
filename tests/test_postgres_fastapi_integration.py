@@ -314,6 +314,13 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert summary_two.json()["parent_read_receipts"]==1
             assert summary_one.json()["authenticated_parents"]==1
             assert summary_two.json()["authenticated_parents"]==1
+            # Bootstrap refuses to overwrite an existing school administrator.
+            from scripts.bootstrap_school_admin import bootstrap
+            try:
+                bootstrap(target,2,"anotheradmin","Another Admin","strong-bootstrap-password-123")
+                assert False, "Bootstrap should reject a school with an existing admin"
+            except ValueError as exc:
+                assert "already has an administrator" in str(exc)
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
