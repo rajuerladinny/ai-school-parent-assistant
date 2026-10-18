@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from . import staff_auth, conflicts, policies, auth
 import secrets
 import sqlite3
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -257,4 +258,40 @@ def disable_parent(parent_id: int, authorization: str | None = Header(None)):
         if not result.rowcount:
             raise HTTPException(404, "Enabled parent not found")
         c.execute("DELETE FROM parent_sessions WHERE parent_id=?", (parent_id,))
+    return {"disabled":True}
+
+class NewStaff(BaseModel):
+    username: str = Field(min_length=3,max_length=80,pattern=r"^[a-zA-Z0-9_.-]+$")
+    display_name: str = Field(min_length=2,max_length=80)
+    password: str = Field(min_length=12,max_length=128)
+    role: str = Field(default="staff",pattern=r"^staff$")
+
+@router.post("/staff", status_code=201)
+def create_staff(item: NewStaff, authorization: str | None = Header(None)):
+    # School administrators can invite staff, not grant school_admin privileges.
+    salt = secrets.token_hex(16)
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        try:
+            cur = c.execute(
+                "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+                "VALUES(?,?,?,?,?,?) RETURNING id",
+                (school_id,item.username.lower(),item.display_name.strip(),salt,
+                 auth.digest(item.password,salt),item.role))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "Username already exists")
+        staff_id = cur.fetchone()["id"]
+    return {"id":staff_id,"school_id":school_id,"role":item.role}
+
+@router.post("/staff/{staff_id}/disable")
+def disable_staff(staff_id: int, authorization: str | None = Header(None)):
+    with _db() as c:
+        principal = staff_auth.principal(c, authorization, roles=("school_admin",))
+        result = c.execute(
+            "UPDATE staff_accounts SET enabled=FALSE "
+            "WHERE id=? AND school_id=? AND role='staff' AND enabled=TRUE",
+            (staff_id,principal["school_id"]))
+        if not result.rowcount:
+            raise HTTPException(404, "Enabled staff account not found")
+        c.execute("DELETE FROM staff_sessions WHERE staff_id=?", (staff_id,))
     return {"disabled":True}
