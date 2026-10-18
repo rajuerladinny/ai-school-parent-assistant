@@ -69,6 +69,21 @@ def migrate(source_path, target_dsn, *, dry_run=True):
                             raise ValueError(f"Count mismatch in {table}")
                     if "id" in selected:
                         cur.execute(f"SELECT setval(pg_get_serial_sequence('{table}','id'), COALESCE((SELECT MAX(id) FROM {table}),1), (SELECT COUNT(*)>0 FROM {table}))")
+                # Verify relational integrity after all dependent tables are copied.
+                for child,parent,foreign_key in (
+                    ("parent_accounts","schools","school_id"),
+                    ("staff_accounts","schools","school_id"),
+                    ("parent_sessions","parent_accounts","parent_id"),
+                    ("staff_sessions","staff_accounts","staff_id"),
+                    ("escalations","schools","school_id"),
+                    ("escalation_events","escalations","escalation_id"),
+                    ("parent_notification_reads","parent_accounts","parent_id"),
+                    ("parent_notification_reads","policy_versions","policy_id"),
+                    ("knowledge_conflicts","policy_versions","policy_id"),
+                ):
+                    cur.execute(f"SELECT COUNT(*) FROM {child} c LEFT JOIN {parent} p ON c.{foreign_key}=p.id WHERE c.{foreign_key} IS NOT NULL AND p.id IS NULL")
+                    if cur.fetchone()[0]:
+                        raise ValueError(f"Broken foreign-key relationship: {child}.{foreign_key} -> {parent}")
                 if dry_run:
                     dst.rollback()
                 else:
