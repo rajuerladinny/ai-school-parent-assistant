@@ -71,16 +71,26 @@ def setup():
         c.execute("""CREATE TABLE IF NOT EXISTS documents(
             id INTEGER PRIMARY KEY, filename TEXT NOT NULL, title TEXT NOT NULL,
             content TEXT NOT NULL, uploaded_at TEXT NOT NULL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS schools(
+            id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1)""")
+        c.execute("INSERT OR IGNORE INTO schools(id,slug,name) VALUES(1,'demo','Sunrise Valley School (demo)')")
         policies.setup(c)
         conflicts.setup(c)
         notifications.setup(c)
         parent_auth.setup(c)
+        cols={r[1] for r in c.execute("PRAGMA table_info(parent_accounts)")}
+        if "school_id" not in cols:
+            c.execute("ALTER TABLE parent_accounts ADD COLUMN school_id INTEGER NOT NULL DEFAULT 1 REFERENCES schools(id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_parent_accounts_school ON parent_accounts(school_id)")
         staff.setup(c)
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
 def startup():
+    if os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
+        raise RuntimeError("SQLite production mode is disabled until PostgreSQL migration is complete")
     setup()
     rebuild_index()
 class Item(BaseModel):

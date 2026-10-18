@@ -56,6 +56,7 @@ def digest(password,salt):
 class CreateParent(BaseModel):
     username:str=Field(min_length=3,max_length=80,pattern=r"^[a-zA-Z0-9_.-]+$")
     display_name:str=Field(min_length=2,max_length=80)
+    school_id:int=Field(default=1,ge=1)
     password:str=Field(min_length=12,max_length=128)
 
 class Credentials(BaseModel):
@@ -68,8 +69,10 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
     salt=secrets.token_hex(16)
     with _db() as c:
         try:
-            cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash) VALUES(?,?,?,?)",
-                          (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt)))
+            school=c.execute("SELECT id FROM schools WHERE id=? AND active=1",(item.school_id,)).fetchone()
+            if not school:raise HTTPException(404,"School not found")
+            cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?)",
+                          (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
         except __import__("sqlite3").IntegrityError:
             raise HTTPException(409,"Username already exists")
         return {"id":cur.lastrowid,"username":item.username.lower(),"role":"parent"}
@@ -97,7 +100,7 @@ def parent(c,authorization):
     token=authorization[7:]
     if not token:raise HTTPException(401,"Parent login required")
     hashed=hashlib.sha256(token.encode()).hexdigest()
-    row=c.execute("""SELECT a.id,a.username,a.display_name FROM parent_sessions s
+    row=c.execute("""SELECT a.id,a.username,a.display_name,a.school_id FROM parent_sessions s
        JOIN parent_accounts a ON a.id=s.parent_id
        WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=1""",
        (hashed,datetime.now(timezone.utc).isoformat())).fetchone()
@@ -108,7 +111,7 @@ def parent(c,authorization):
 def me(authorization:str|None=Header(None)):
     with _db() as c:
         p=parent(c,authorization)
-        return {"id":p["id"],"username":p["username"],"display_name":p["display_name"],"role":"parent"}
+        return {"id":p["id"],"username":p["username"],"display_name":p["display_name"],"school_id":p["school_id"],"role":"parent"}
 
 @router.post("/logout")
 def logout(authorization:str|None=Header(None)):
