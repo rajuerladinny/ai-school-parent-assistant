@@ -108,6 +108,41 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             history=client.get(f"/api/staff/questions/{question_id}/history",headers=headers)
             assert history.status_code==200,history.text
             assert [event["action"] for event in history.json()]==["assigned","resolved"]
+            with psycopg.connect(target) as seeded:
+                seeded.execute("INSERT INTO schools(id,slug,name) VALUES(2,'other','Other School')")
+                seeded.execute("INSERT INTO escalations(school_id,question) VALUES(2,'Private other-school question')")
+                seeded.execute("INSERT INTO knowledge(school_id,topic,answer,source) VALUES(2,'Private topic','Other school only','Other')")
+            other_staff=client.post("/api/staff-auth/accounts",headers=headers,json={
+                "username":"otherstaff","display_name":"Other School Staff",
+                "password":"secure-other-staff-123","school_id":2,"role":"staff"})
+            assert other_staff.status_code==201,other_staff.text
+            other_login=client.post("/api/staff-auth/login",json={
+                "username":"otherstaff","password":"secure-other-staff-123"})
+            assert other_login.status_code==200,other_login.text
+            other_headers={"authorization":"Bearer "+other_login.json()["access_token"]}
+            other_questions=client.get("/api/staff/mine/questions",headers=other_headers)
+            assert other_questions.status_code==200,other_questions.text
+            assert len(other_questions.json())==1
+            other_question_id=other_questions.json()[0]["id"]
+            assert other_questions.json()[0]["question"]=="Private other-school question"
+            assert all(x["id"]!=other_question_id for x in client.get("/api/staff/mine/questions",headers=staff_headers).json())
+            denied=client.patch(f"/api/staff/mine/questions/{other_question_id}",headers=staff_headers,json={
+                "status":"assigned","assigned_to":"pgstaff"})
+            assert denied.status_code==404,denied.text
+            denied_reverse=client.patch(f"/api/staff/mine/questions/{question_id}",headers=other_headers,json={
+                "status":"assigned","assigned_to":"otherstaff"})
+            assert denied_reverse.status_code==404,denied_reverse.text
+            other_parent=client.post("/api/auth/parents",headers=headers,json={
+                "username":"otherparent","display_name":"Other School Parent",
+                "password":"secure-other-parent-123","school_id":2})
+            assert other_parent.status_code==201,other_parent.text
+            other_parent_login=client.post("/api/auth/login",json={
+                "username":"otherparent","password":"secure-other-parent-123"})
+            assert other_parent_login.status_code==200,other_parent_login.text
+            other_parent_headers={"authorization":"Bearer "+other_parent_login.json()["access_token"]}
+            assert client.get("/api/auth/me",headers=other_parent_headers).json()["school_id"]==2
+            blocked_chat=client.post("/api/chat",headers=other_parent_headers,json={"question":"What are school timings?"})
+            assert blocked_chat.status_code==403,blocked_chat.text
             assert client.post("/api/staff-auth/logout",headers=staff_headers).status_code==200
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
     finally:
