@@ -98,6 +98,13 @@ def activate(kind:str,item_id:int,x_admin_key: str | None=Header(None)):
     if kind not in ("faq","document"):raise HTTPException(422,"Invalid knowledge type")
     table="knowledge" if kind=="faq" else "documents"
     with _db() as c:
+        existing=c.execute(f"SELECT * FROM {table} WHERE id=? AND active=0",(item_id,)).fetchone()
+        if not existing: raise HTTPException(404,"Inactive knowledge item not found")
+        topic=existing["topic"] if kind=="faq" else existing["title"]
+        from . import policies
+        for policy in policies.current_versions(c):
+            if norm(topic) in {norm(policy["policy_key"]),norm(policy["title"])}:
+                raise HTTPException(409,"Current approved policy covers this topic; cannot reactivate outdated knowledge")
         if not c.execute(f"UPDATE {table} SET active=1 WHERE id=? AND active=0",(item_id,)).rowcount:
             raise HTTPException(404,"Inactive knowledge item not found")
         # Reopening conflicts prevents silently reintroducing old facts.
