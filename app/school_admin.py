@@ -295,3 +295,18 @@ def disable_staff(staff_id: int, authorization: str | None = Header(None)):
             raise HTTPException(404, "Enabled staff account not found")
         c.execute("DELETE FROM staff_sessions WHERE staff_id=?", (staff_id,))
     return {"disabled":True}
+
+@router.get("/notifications/summary")
+def notification_summary(authorization: str | None = Header(None)):
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        parents = c.execute(
+            "SELECT COUNT(*) FROM parent_accounts WHERE school_id=? AND enabled=TRUE",
+            (school_id,)).fetchone()[0]
+        receipts = c.execute(
+            "SELECT COUNT(*) FROM parent_notification_reads r "
+            "JOIN parent_accounts a ON a.id=r.parent_id "
+            "JOIN policy_versions p ON p.id=r.policy_id "
+            "WHERE a.school_id=? AND p.school_id=?",
+            (school_id,school_id)).fetchone()[0]
+        return {"authenticated_parents":parents,"parent_read_receipts":receipts}
