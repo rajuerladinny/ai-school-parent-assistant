@@ -31,12 +31,12 @@ def setup(c):
 def norm(s):
     return re.sub(r"[^a-z0-9]+", "", s.lower())
 
-def candidates(c, policy):
+def candidates(c, policy, school_id=1):
     """Flag explicit topic/key matches; document titles must match, not fuzzy tokens."""
     keys={norm(policy["policy_key"]),norm(policy["title"])}
     keys.discard("")
     result=[]
-    for x in c.execute("SELECT id,topic FROM knowledge WHERE active=TRUE AND school_id=1"):
+    for x in c.execute("SELECT id,topic FROM knowledge WHERE active=TRUE AND school_id=?", (school_id,)):
         if norm(x["topic"]) in keys:
             result.append(("faq",x["id"],x["topic"]))
     for x in c.execute("SELECT id,title FROM documents WHERE active=TRUE AND school_id=1"):
@@ -44,10 +44,10 @@ def candidates(c, policy):
             result.append(("document",x["id"],x["title"]))
     return result
 
-def scan(c, policy_id):
-    p=c.execute("SELECT * FROM policy_versions WHERE id=? AND school_id=1", (policy_id,)).fetchone()
+def scan(c, policy_id, school_id=1):
+    p=c.execute("SELECT * FROM policy_versions WHERE id=? AND school_id=?", (policy_id,school_id)).fetchone()
     if not p: raise HTTPException(404,"Policy not found")
-    for kind, id, _ in candidates(c,p):
+    for kind, id, _ in candidates(c,p,school_id):
         c.execute("""INSERT INTO knowledge_conflicts(policy_id,legacy_type,legacy_id)
                      VALUES(?,?,?) ON CONFLICT DO NOTHING""",(policy_id,kind,id))
     # Closed legacy sources resolve their conflicts; reactivation creates open conflicts.
@@ -59,8 +59,8 @@ def scan(c, policy_id):
     return c.execute("""SELECT id,legacy_type,legacy_id,status FROM knowledge_conflicts
                         WHERE policy_id=? ORDER BY id""",(policy_id,)).fetchall()
 
-def pending(c, policy_id):
-    scan(c,policy_id)
+def pending(c, policy_id, school_id=1):
+    scan(c,policy_id,school_id)
     return c.execute("SELECT COUNT(*) FROM knowledge_conflicts WHERE policy_id=? AND status='open'",(policy_id,)).fetchone()[0]
 
 @router.get("")
