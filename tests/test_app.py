@@ -95,3 +95,15 @@ def test_production_chat_requires_parent_login(client,monkeypatch):
     monkeypatch.setenv("SCHOOL_ENV","production")
     assert client.post("/api/chat",json={"question":"What are school timings?"}).status_code==401
     monkeypatch.delenv("SCHOOL_ENV")
+
+
+def test_staff_workflow_cannot_read_or_change_other_school_escalations(client):
+    from app import main
+    with main.db() as db:
+        db.execute("INSERT OR IGNORE INTO schools(id,slug,name) VALUES(2,'other-staff-test','Other Demo School')")
+        other=db.execute("INSERT INTO escalations(question,school_id) VALUES(?,2)",("Private other-school question",)).lastrowid
+    headers={"X-Admin-Key":"test-key"}
+    assert all(x["id"]!=other for x in client.get("/api/staff/questions",headers=headers).json())
+    assert all(x["id"]!=other for x in client.get("/api/escalations",headers=headers).json())
+    assert client.get(f"/api/staff/questions/{other}/history",headers=headers).status_code==404
+    assert client.patch(f"/api/staff/questions/{other}",headers=headers,json={"status":"resolved","resolution":"Not allowed"}).status_code==404
