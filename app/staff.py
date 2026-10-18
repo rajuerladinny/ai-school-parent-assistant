@@ -34,9 +34,9 @@ def questions(status:str|None=None,x_admin_key:str|None=Header(None)):
         raise HTTPException(422,"Invalid status")
     with _db() as c:
         if status:
-            rows=c.execute("SELECT * FROM escalations WHERE status=? ORDER BY id DESC",(status,))
+            rows=c.execute("SELECT * FROM escalations WHERE status=? AND school_id=1 ORDER BY id DESC",(status,))
         else:
-            rows=c.execute("SELECT * FROM escalations ORDER BY id DESC")
+            rows=c.execute("SELECT * FROM escalations WHERE school_id=1 ORDER BY id DESC")
         return [dict(x) for x in rows]
 
 @router.patch("/questions/{question_id}")
@@ -49,12 +49,12 @@ def update(question_id:int,payload:Update,x_admin_key:str|None=Header(None)):
     if payload.status=="resolved" and not resolution:
         raise HTTPException(422,"Resolved questions require a resolution")
     with _db() as c:
-        current=c.execute("SELECT id,status FROM escalations WHERE id=?",(question_id,)).fetchone()
+        current=c.execute("SELECT id,status FROM escalations WHERE id=? AND school_id=1",(question_id,)).fetchone()
         if not current:raise HTTPException(404,"Question not found")
         if current["status"]=="resolved" and payload.status!="resolved":
             raise HTTPException(409,"Resolved questions cannot be reopened in this MVP")
         c.execute("""UPDATE escalations SET status=?,assigned_to=?,resolution=?,
-            updated_at=?,resolved_at=? WHERE id=?""",
+            updated_at=?,resolved_at=? WHERE id=? AND school_id=1""",
             (payload.status,assignee or None,resolution or None,now(),
              now() if payload.status=="resolved" else None,question_id))
         c.execute("""INSERT INTO escalation_events(escalation_id,action,detail,created_at)
@@ -66,7 +66,7 @@ def update(question_id:int,payload:Update,x_admin_key:str|None=Header(None)):
 def history(question_id:int,x_admin_key:str|None=Header(None)):
     _auth(x_admin_key)
     with _db() as c:
-        if not c.execute("SELECT id FROM escalations WHERE id=?",(question_id,)).fetchone():
+        if not c.execute("SELECT id FROM escalations WHERE id=? AND school_id=1",(question_id,)).fetchone():
             raise HTTPException(404,"Question not found")
         return [dict(x) for x in c.execute(
             "SELECT action,detail,created_at FROM escalation_events WHERE escalation_id=? ORDER BY id",
