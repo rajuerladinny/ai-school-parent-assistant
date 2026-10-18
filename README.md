@@ -135,3 +135,8 @@ School ID 1 is the **only** school allowed to access the existing shared parent 
 ## Tenant content schema phase 2 (incomplete)
 
 FAQ, uploaded documents and policy versions now carry `school_id`, existing records are assigned to fictional demo school ID 1, and Chroma embeddings carry a school filter. Legacy admin endpoints are restricted to school 1. Parent accounts in other schools are still denied access to shared parent content by the earlier fail-closed guard. **This is a schema and filtering milestone only:** it does not enable multi-school onboarding, per-school admin RBAC, fully partitioned indexes, tenant-specific staff workflow, PostgreSQL, or production operation. The existing global uniqueness of `policy_versions(policy_key,version)` must be replaced with a tenant-scoped uniqueness constraint in a tested migration before multiple schools can author policies.
+
+
+## PostgreSQL migration — phase 1: schema validation
+
+`migrations/postgresql/001_initial.sql` defines a tenant-aware PostgreSQL 16 schema. `.github/workflows/postgres-schema.yml` runs the schema against a temporary PostgreSQL database and checks per-school policy version uniqueness. This **does not migrate existing SQLite data** or switch the API's runtime connection to PostgreSQL. The application remains SQLite-only and refuses production startup with SQLite. Do not run this schema against an existing production database without reviewing migration/version tracking, data retention, credentials, backup and rollback procedures. Next phases must implement the PostgreSQL repository adapter, audited SQLite-to-Postgres data transformation, verification and restore drills.
