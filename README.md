@@ -125,3 +125,8 @@ Set `SCHOOL_ENV=production`, `SCHOOL_ADMIN_KEY` to a random value of at least 32
 ## Multi-school foundation (not yet tenant-isolated)
 
 The schema now includes a `schools` registry and associates parent accounts with a school, defaulting to fictional demo school ID 1 for backward compatibility. **Do not register real schools or real student/parent records yet.** Policies, knowledge, documents, escalation queries and RAG indexes are still globally scoped. Until all resources are tenant-scoped and tested against cross-school access, this is not multi-tenant secure. Production startup refuses SQLite by default; PostgreSQL support and migration remain to be implemented. This intentionally prevents accidental production use of the current demo persistence.
+
+
+## Tenant isolation: fail-closed phase 1
+
+School ID 1 is the **only** school allowed to access the existing shared parent chat/RAG, notification inbox, and question history. Parent sessions linked to any other school receive HTTP 403 on these endpoints. This is intentional: the existing FAQ, policy, document and vector indexes are not tenant-partitioned. It prevents cross-school exposure via authenticated parent endpoints while tenant-specific persistence, staff/admin scoping, retrieval and migrations are built. **This is not completed multi-school isolation** and not permission to onboard real schools. The public demo chat remains available when `SCHOOL_ENV` is not production; production mode requires a parent session. School ID 1 must remain fictional demonstration data.

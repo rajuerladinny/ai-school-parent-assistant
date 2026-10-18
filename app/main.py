@@ -217,7 +217,7 @@ def chat(q:Question,authorization:str|None=Header(None)):
         raise HTTPException(401,"Parent login required")
     if authorization:
         with db() as c:
-            parent_auth.parent(c,authorization)
+            parent_auth.require_demo_school(parent_auth.parent(c,authorization))
     ensure_current_policy_index()
     results=rag.search(q.question,limit=4)
     # Avoid confident answers when semantic matches are weak.

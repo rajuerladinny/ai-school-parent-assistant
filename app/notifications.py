@@ -37,6 +37,7 @@ def summary(x_admin_key:str|None=Header(None)):
 def my_inbox(authorization:str|None=Header(None)):
     with _db() as c:
         p=parent_auth.parent(c,authorization)
+        parent_auth.require_demo_school(p)
         return [dict(r) for r in c.execute("""SELECT p.id AS policy_id,p.policy_key,p.title,
             p.version,p.effective_date,
             CASE WHEN r.policy_id IS NULL THEN 0 ELSE 1 END AS is_read
@@ -50,6 +51,7 @@ def my_inbox(authorization:str|None=Header(None)):
 def mark_my_read(policy_id:int,authorization:str|None=Header(None)):
     with _db() as c:
         p=parent_auth.parent(c,authorization)
+        parent_auth.require_demo_school(p)
         found=c.execute("SELECT id FROM policy_versions WHERE id=? AND status='approved' AND effective_date<=?",
                         (policy_id,date.today().isoformat())).fetchone()
         if not found:raise HTTPException(404,"Notification not available")
