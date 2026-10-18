@@ -163,6 +163,29 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                                  headers=admin_one).status_code==404
             assert client.delete(f"/api/school-admin/knowledge/{second_id}",
                                  headers=admin_two).status_code==200
+            # Document and escalation administration is tenant-scoped too.
+            with psycopg.connect(target) as seeded:
+                seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
+                               "VALUES(2,'secret.txt','Private document','School 2 confidential information',CURRENT_TIMESTAMP)")
+            own_docs=client.get("/api/school-admin/documents",headers=admin_one)
+            other_docs=client.get("/api/school-admin/documents",headers=admin_two)
+            assert own_docs.status_code==200 and other_docs.status_code==200
+            assert all(d.get("school_id",1)==1 for d in own_docs.json())  # IDs checked below
+            assert len(other_docs.json())==1
+            other_doc_id=other_docs.json()[0]["id"]
+            assert all(d["id"]!=other_doc_id for d in own_docs.json())
+            assert client.delete(f"/api/school-admin/documents/{other_doc_id}",
+                                 headers=admin_one).status_code==404
+            assert client.delete(f"/api/school-admin/documents/{other_doc_id}",
+                                 headers=admin_two).status_code==200
+            assert client.get("/api/school-admin/documents",headers=staff_headers).status_code==403
+            admin_one_escalations=client.get("/api/school-admin/escalations",headers=admin_one)
+            admin_two_escalations=client.get("/api/school-admin/escalations",headers=admin_two)
+            assert admin_one_escalations.status_code==200
+            assert admin_two_escalations.status_code==200
+            assert all(q["school_id"]==1 for q in admin_one_escalations.json())
+            assert all(q["school_id"]==2 for q in admin_two_escalations.json())
+            assert client.get("/api/school-admin/escalations",headers=staff_headers).status_code==403
             other_parent=client.post("/api/auth/parents",headers=headers,json={
                 "username":"otherparent","display_name":"Other School Parent",
                 "password":"secure-other-parent-123","school_id":2})
