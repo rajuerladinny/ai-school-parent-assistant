@@ -6,12 +6,33 @@ import hashlib
 import hmac
 import secrets
 import sqlite3
+import threading
+import time
 from datetime import datetime,timedelta,timezone
-from fastapi import APIRouter,Header,HTTPException
+from fastapi import APIRouter,Header,HTTPException,Request
 from pydantic import BaseModel,Field
 from .auth import digest
 
 router=APIRouter(prefix="/api/staff-auth",tags=["staff-auth"])
+_attempts={}
+_attempt_lock=threading.Lock()
+_WINDOW=300
+_LIMIT=5
+
+def _limit_login(username,ip):
+    now=time.monotonic()
+    key=(ip,username.lower())
+    with _attempt_lock:
+        for old,(start,_) in list(_attempts.items()):
+            if now-start>_WINDOW:del _attempts[old]
+        start,count=_attempts.get(key,(now,0))
+        if count>=_LIMIT:
+            raise HTTPException(429,"Too many login attempts; try again later",headers={"Retry-After":str(_WINDOW)})
+        _attempts[key]=(start,count+1)
+
+def _clear_login(username,ip):
+    with _attempt_lock:_attempts.pop((ip,username.lower()),None)
+
 _db=_admin=None
 
 def configure(db,admin):
@@ -55,7 +76,9 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
         return {"id":cur.fetchone()["id"],"school_id":item.school_id,"role":item.role}
 
 @router.post("/login")
-def login(item:Credentials):
+def login(item:Credentials,request:Request):
+    ip=request.client.host if request.client else "unknown"
+    _limit_login(item.username,ip)
     with _db() as c:
         account=c.execute("SELECT * FROM staff_accounts WHERE username=?",(item.username.lower(),)).fetchone()
         if not account or not account["enabled"] or not hmac.compare_digest(
@@ -65,6 +88,7 @@ def login(item:Credentials):
         expires=(datetime.now(timezone.utc)+timedelta(hours=8)).isoformat()
         c.execute("INSERT INTO staff_sessions(token_hash,staff_id,expires_at) VALUES(?,?,?)",
                   (hashlib.sha256(token.encode()).hexdigest(),account["id"],expires))
+    _clear_login(item.username,ip)
     return {"access_token":token,"token_type":"bearer","expires_at":expires,"role":account["role"]}
 
 def principal(c,authorization,roles=("school_admin","staff")):
