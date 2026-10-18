@@ -29,11 +29,22 @@ def placeholders(sql):
     return "".join(out)
 
 
+class RowAdapter(dict):
+    """Support both SQLite positional row[0] and named row["column"] access."""
+    def __getitem__(self,key):
+        if isinstance(key,int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
 class CursorAdapter:
     def __init__(self,cursor):self._cursor=cursor
-    def fetchone(self):return self._cursor.fetchone()
-    def fetchall(self):return self._cursor.fetchall()
-    def __iter__(self):return iter(self._cursor)
+    def fetchone(self):
+        row=self._cursor.fetchone()
+        return RowAdapter(row) if isinstance(row,dict) else row
+    def fetchall(self):return [RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor.fetchall()]
+    def __iter__(self):
+        return (RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor)
     @property
     def rowcount(self):return self._cursor.rowcount
     @property
