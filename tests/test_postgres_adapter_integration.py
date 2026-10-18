@@ -37,3 +37,21 @@ def test_postgres_adapter_rejects_sqlite_only_sql():
             c.execute("PRAGMA foreign_keys=ON")
         with pytest.raises(NotImplementedError):
             c.execute("INSERT OR IGNORE INTO schools(slug,name) VALUES(?,?)",("x","y"))
+
+
+def test_postgres_adapter_explicit_commit_and_rollback():
+    dsn=os.getenv("TEST_POSTGRES_URL")
+    if not dsn:
+        pytest.skip("Requires isolated TEST_POSTGRES_URL")
+    from app.postgres_adapter import connect
+    slug="adapter-transaction-methods"
+    with connect(dsn) as c:
+        c.execute("DELETE FROM schools WHERE slug=?",(slug,))
+        c.execute("INSERT INTO schools(slug,name) VALUES(?,?)",(slug,"Temporary"))
+        c.rollback()
+        assert c.execute("SELECT COUNT(*) AS n FROM schools WHERE slug=?",(slug,)).fetchone()["n"]==0
+        c.execute("INSERT INTO schools(slug,name) VALUES(?,?)",(slug,"Committed"))
+        c.commit()
+    with connect(dsn) as c:
+        assert c.execute("SELECT COUNT(*) AS n FROM schools WHERE slug=?",(slug,)).fetchone()["n"]==1
+        c.execute("DELETE FROM schools WHERE slug=?",(slug,))
