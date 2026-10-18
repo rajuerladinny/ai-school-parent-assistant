@@ -39,6 +39,20 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert response.status_code==200,response.text
             assert len(response.json())==1
             assert response.json()[0]["topic"]=="Timings"
+            headers={"x-admin-key":"test-key-for-integration"}
+            created=client.post("/api/knowledge",headers=headers,json={"topic":"Transport","answer":"Bus routes are available","source":"Transport office"})
+            assert created.status_code==201,created.text
+            item_id=created.json()["id"]
+            assert any(x["id"]==item_id for x in client.get("/api/knowledge",headers=headers).json())
+            deleted=client.delete(f"/api/knowledge/{item_id}",headers=headers)
+            assert deleted.status_code==200,deleted.text
+            assert all(x["id"]!=item_id for x in client.get("/api/knowledge",headers=headers).json())
+            escalations=client.get("/api/escalations",headers=headers)
+            assert escalations.status_code==200,escalations.text
+            policy=client.get("/api/policies/active")
+            assert policy.status_code==200,policy.text
+            staff=client.get("/api/staff/mine/questions")
+            assert staff.status_code==401,staff.text
     finally:
         with psycopg.connect(admin,autocommit=True) as root:
             root.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
