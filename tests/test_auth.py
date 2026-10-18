@@ -75,3 +75,21 @@ def test_parent_school_assignment(client):
     token=client.post("/api/auth/login",json={"username":"secondschoolparent","password":"long-password-for-demo"}).json()["access_token"]
     assert client.get("/api/auth/me",headers={"Authorization":"Bearer "+token}).json()["school_id"]==2
     assert client.post("/api/auth/parents",headers=h,json={"username":"missing-school","display_name":"Missing School","password":"long-password-for-demo","school_id":999}).status_code==404
+
+
+def test_second_school_cannot_access_shared_parent_content(client):
+    from app import main
+    with main.db() as db:
+        db.execute("INSERT OR IGNORE INTO schools(id,slug,name) VALUES(2,'school-two','Second Fictional School')")
+    admin={"X-Admin-Key":"test-key"}
+    created=client.post("/api/auth/parents",headers=admin,json={
+        "username":"isolated-parent","display_name":"Isolated Parent",
+        "password":"long-unique-demo-password","school_id":2})
+    assert created.status_code==201
+    login=client.post("/api/auth/login",json={"username":"isolated-parent","password":"long-unique-demo-password"})
+    assert login.status_code==200
+    headers={"Authorization":"Bearer "+login.json()["access_token"]}
+    assert client.get("/api/auth/me",headers=headers).json()["school_id"]==2
+    assert client.get("/api/notifications/mine",headers=headers).status_code==403
+    assert client.get("/api/parent/questions",headers=headers).status_code==403
+    assert client.post("/api/chat",headers=headers,json={"question":"What are school timings?"}).status_code==403
