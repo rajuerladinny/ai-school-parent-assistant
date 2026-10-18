@@ -42,7 +42,7 @@ def _load():
             metadata={"hnsw:space": "cosine"},
         )
         return True
-    except (ImportError, OSError, RuntimeError, ValueError):
+    except Exception:
         return False
 
 def enabled() -> bool:
