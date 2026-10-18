@@ -108,7 +108,7 @@ def update_my_school_question(question_id:int,payload:Update,authorization:str|N
             if payload.status=="assigned" and assignee!=user["username"]:
                 raise HTTPException(403,"Staff can only assign questions to themselves")
         if assignee and payload.status=="assigned":
-            assignee_row=c.execute("SELECT id FROM staff_accounts WHERE username=? AND school_id=? AND enabled=1",
+            assignee_row=c.execute("SELECT id FROM staff_accounts WHERE username=? AND school_id=? AND enabled=TRUE",
                                    (assignee,user["school_id"])).fetchone()
             if not assignee_row:
                 raise HTTPException(422,"Assignee must be an active staff account in this school")
