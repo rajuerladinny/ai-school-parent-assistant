@@ -159,6 +159,26 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert any(x["policy_id"]==policy_id and x["is_read"] for x in client.get("/api/notifications/mine",headers=parent_headers).json())
             assert client.get("/api/notifications/admin/summary",headers=headers).status_code==200
             from app import rag
+            class ScopedCollection:
+                def __init__(self):self.scopes=[]
+                def count(self):return 2
+                def query(self,**kwargs):
+                    self.scopes.append(kwargs["where"])
+                    school=kwargs["where"]["school_id"]
+                    return {"documents":[["School "+str(school)+" private content"]],
+                            "metadatas":[[{"school_id":school,"source":"School "+str(school),"topic":"Private"}]],
+                            "distances":[[0.1]]}
+            class ScopedModel:
+                def encode(self,*args,**kwargs):
+                    class Vectors:
+                        def tolist(self):return [[0.1,0.2]]
+                    return Vectors()
+            collection=ScopedCollection()
+            monkeypatch.setattr(rag,"_collection",collection)
+            monkeypatch.setattr(rag,"_model",ScopedModel())
+            assert rag.search("private",school_id=1)[0]["text"]=="School 1 private content"
+            assert rag.search("private",school_id=2)[0]["text"]=="School 2 private content"
+            assert collection.scopes==[{"school_id":1},{"school_id":2}]
             for invalid_school in (0,-1,None,True,"2"):
                 with pytest.raises(ValueError):
                     rag.search("school policies",school_id=invalid_school)
