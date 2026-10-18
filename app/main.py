@@ -52,7 +52,7 @@ def records_for_index():
         for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=1"):
             records.append({"id":"doc-"+str(r["id"]),"school_id":r["school_id"],"topic":r["title"],
                             "source":r["filename"],"text":r["content"]})
-        records.extend(policies.active_records(c))
+        records.extend({**r,"school_id":1} for r in policies.active_records(c))
         return records
 def rebuild_index():
     global _last_policy_index_date
