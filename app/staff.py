@@ -2,6 +2,7 @@
 from datetime import datetime,timezone
 from fastapi import APIRouter,Header,HTTPException
 from pydantic import BaseModel,Field
+from . import staff_auth
 
 router=APIRouter(prefix="/api/staff",tags=["staff-workflow"])
 _db=_auth=None
@@ -71,3 +72,38 @@ def history(question_id:int,x_admin_key:str|None=Header(None)):
         return [dict(x) for x in c.execute(
             "SELECT action,detail,created_at FROM escalation_events WHERE escalation_id=? ORDER BY id",
             (question_id,))]
+
+
+@router.get("/mine/questions")
+def my_school_questions(status:str|None=None,authorization:str|None=Header(None)):
+    if status is not None and status not in ("open","assigned","resolved"):
+        raise HTTPException(422,"Invalid status")
+    with _db() as c:
+        user=staff_auth.principal(c,authorization)
+        if status:
+            rows=c.execute("SELECT * FROM escalations WHERE school_id=? AND status=? ORDER BY id DESC",(user["school_id"],status))
+        else:
+            rows=c.execute("SELECT * FROM escalations WHERE school_id=? ORDER BY id DESC",(user["school_id"],))
+        return [dict(r) for r in rows]
+
+@router.patch("/mine/questions/{question_id}")
+def update_my_school_question(question_id:int,payload:Update,authorization:str|None=Header(None)):
+    with _db() as c:
+        user=staff_auth.principal(c,authorization)
+        existing=c.execute("SELECT id,status FROM escalations WHERE id=? AND school_id=?",
+                           (question_id,user["school_id"])).fetchone()
+        if not existing:raise HTTPException(404,"Question not found")
+        if existing["status"]=="resolved" and payload.status!="resolved":
+            raise HTTPException(409,"Resolved questions cannot be reopened")
+        assignee=(payload.assigned_to or "").strip()
+        resolution=(payload.resolution or "").strip()
+        if payload.status=="assigned" and not assignee:raise HTTPException(422,"Assignee required")
+        if payload.status=="resolved" and not resolution:raise HTTPException(422,"Resolution required")
+        if user["role"]=="staff" and payload.status=="assigned" and assignee!=user["username"]:
+            raise HTTPException(403,"Staff can only assign questions to themselves")
+        c.execute("""UPDATE escalations SET status=?,assigned_to=?,resolution=?,updated_at=?,resolved_at=?
+            WHERE id=? AND school_id=?""",(payload.status,assignee or None,resolution or None,now(),
+                now() if payload.status=="resolved" else None,question_id,user["school_id"]))
+        c.execute("INSERT INTO escalation_events(escalation_id,action,detail,created_at) VALUES(?,?,?,?)",
+                  (question_id,payload.status,assignee if payload.status=="assigned" else resolution,now()))
+        return {"id":question_id,"status":payload.status}
