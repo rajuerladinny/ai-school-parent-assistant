@@ -32,4 +32,6 @@ Every checkbox requires a linked implementation/test or verification evidence. A
 - [x] Migration includes staff accounts/sessions, parent sessions, escalations/events and knowledge conflicts; source table/column validation tests passed in School Assistant CI run 239.
 - [ ] **Not verified:** Full migrated dataset integrity, actual PostgreSQL-backed API, restore drill, security assessment, and cross-tenant authorization for every endpoint.
 
+- [x] School-local assignee validation and protection against staff changing another staff member's assigned question committed; both School Assistant CI run 247 and PostgreSQL Schema Integration run 109 passed. These runs do not independently prove cross-tenant API behavior.
+
 The completed subitems above do **not** satisfy the unchecked top-level release gates. Production readiness remains **BLOCKED**.
