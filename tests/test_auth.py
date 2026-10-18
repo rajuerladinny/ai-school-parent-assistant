@@ -52,3 +52,14 @@ def test_private_parent_read_receipts_and_disable(client):
     assert client.post(f"/api/auth/parents/{first}/disable",headers={"X-Admin-Key":"test-key"}).status_code==200
     assert client.get("/api/auth/me",headers=a).status_code==401
     assert client.get("/api/auth/me",headers=b).status_code==200
+
+
+def test_login_throttling(client):
+    from app import auth
+    auth._login_attempts.clear()
+    for _ in range(5):
+        assert client.post("/api/auth/login",json={"username":"blockedparent","password":"incorrect"}).status_code==401
+    r=client.post("/api/auth/login",json={"username":"blockedparent","password":"incorrect"})
+    assert r.status_code==429
+    assert "Retry-After" in r.headers
+    auth._login_attempts.clear()
