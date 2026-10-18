@@ -159,8 +159,8 @@ def knowledge(x_admin_key:str|None=Header(None)):
 def add(item:Item,x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        cur=c.execute("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",tuple(item.model_dump().values()))
-        item_id=cur.lastrowid
+        cur=c.execute("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?) RETURNING id",tuple(item.model_dump().values()))
+        item_id=cur.fetchone()["id"]
     rebuild_index()
     return {"id":item_id,"vector_index_updated":rag.enabled()}
 @app.delete("/api/knowledge/{id}")
@@ -209,9 +209,9 @@ async def upload_document(file:UploadFile=File(...),title:str=Form("School docum
     if len(text)>2_000_000:raise HTTPException(413,"Extracted document text is too large")
     clean_title=title.strip()[:150] or filename
     with db() as c:
-        cur=c.execute("INSERT INTO documents(filename,title,content,uploaded_at) VALUES(?,?,?,?)",
+        cur=c.execute("INSERT INTO documents(filename,title,content,uploaded_at) VALUES(?,?,?,?) RETURNING id",
                       (filename,clean_title,text,datetime.now(timezone.utc).isoformat()))
-        doc_id=cur.lastrowid
+        doc_id=cur.fetchone()["id"]
     indexed=rebuild_index()
     return {"id":doc_id,"filename":filename,"characters":len(text),"vector_index_updated":indexed,
             "note":"Document is searchable after indexing. Review the source content before relying on answers."}
@@ -245,8 +245,8 @@ def chat(q:Question,authorization:str|None=Header(None)):
         if fallback:return fallback
     with db() as c:
         parent_id = parent_auth.parent(c,authorization)["id"] if authorization else None
-        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,1)",(q.question,parent_id))
-        escalation_id=cur.lastrowid
+        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,1) RETURNING id",(q.question,parent_id))
+        escalation_id=cur.fetchone()["id"]
     return {"answer":"I don't have verified information for that. Your question has been sent for school staff review.",
             "source":None,"needs_staff":True,"retrieval":"no-confident-match","escalation_id":escalation_id}
 @app.get("/api/escalations")
