@@ -49,10 +49,10 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
             raise HTTPException(404,"School not found")
         try:
             cur=c.execute("""INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role)
-                VALUES(?,?,?,?,?,?)""",(item.school_id,item.username.lower(),item.display_name,salt,digest(item.password,salt),item.role))
+                VALUES(?,?,?,?,?,?) RETURNING id""",(item.school_id,item.username.lower(),item.display_name,salt,digest(item.password,salt),item.role))
         except sqlite3.IntegrityError:
             raise HTTPException(409,"Username already exists")
-        return {"id":cur.lastrowid,"school_id":item.school_id,"role":item.role}
+        return {"id":cur.fetchone()["id"],"school_id":item.school_id,"role":item.role}
 
 @router.post("/login")
 def login(item:Credentials):
