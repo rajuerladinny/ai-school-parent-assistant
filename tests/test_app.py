@@ -57,3 +57,24 @@ def test_delete_document(client):
     assert r.status_code==201
     doc_id=r.json()["id"]
     assert client.delete(f"/api/documents/{doc_id}",headers=h).json()["deleted"] is True
+
+def test_weak_vector_match_escalates_instead_of_keyword_guess(client, monkeypatch):
+    # Vector index is available but no result is confident enough.
+    monkeypatch.setattr(main.rag, "enabled", lambda: True)
+    monkeypatch.setattr(main.rag, "search", lambda question, limit=4: [])
+    r = client.post("/api/chat", json={"question":"What are the school timings?"})
+    assert r.status_code == 200
+    assert r.json()["needs_staff"] is True
+    assert r.json()["retrieval"] == "no-confident-match"
+
+def test_vector_result_includes_source(client, monkeypatch):
+    monkeypatch.setattr(main.rag, "search", lambda question, limit=4: [
+        {"text":"Library closes at 2 PM.","source":"Approved library policy",
+         "topic":"Library","distance":0.12}])
+    monkeypatch.setattr(main, "generate_grounded_answer",
+                        lambda question, passages: ("Library closes at 2 PM.", "extractive-rag"))
+    r = client.post("/api/chat", json={"question":"When does the library close?"})
+    assert r.status_code == 200
+    assert r.json()["needs_staff"] is False
+    assert r.json()["retrieval"] == "chroma-vector"
+    assert r.json()["sources"][0]["source"] == "Approved library policy"
