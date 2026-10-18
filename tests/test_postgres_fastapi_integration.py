@@ -53,6 +53,31 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert policy.status_code==200,policy.text
             staff=client.get("/api/staff/mine/questions")
             assert staff.status_code==401,staff.text
+            parent=client.post("/api/auth/parents",headers=headers,json={
+                "username":"pgparent","display_name":"Postgres Parent",
+                "password":"secure-parent-pass-123","school_id":1})
+            assert parent.status_code==201,parent.text
+            parent_login=client.post("/api/auth/login",json={
+                "username":"pgparent","password":"secure-parent-pass-123"})
+            assert parent_login.status_code==200,parent_login.text
+            parent_headers={"authorization":"Bearer "+parent_login.json()["access_token"]}
+            parent_me=client.get("/api/auth/me",headers=parent_headers)
+            assert parent_me.status_code==200,parent_me.text
+            assert parent_me.json()["school_id"]==1
+            assert client.post("/api/auth/logout",headers=parent_headers).status_code==200
+            assert client.get("/api/auth/me",headers=parent_headers).status_code==401
+            staff_account=client.post("/api/staff-auth/accounts",headers=headers,json={
+                "username":"pgstaff","display_name":"Postgres Staff",
+                "password":"secure-staff-pass-123","school_id":1,"role":"staff"})
+            assert staff_account.status_code==201,staff_account.text
+            staff_login=client.post("/api/staff-auth/login",json={
+                "username":"pgstaff","password":"secure-staff-pass-123"})
+            assert staff_login.status_code==200,staff_login.text
+            staff_headers={"authorization":"Bearer "+staff_login.json()["access_token"]}
+            assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==200
+            assert client.get("/api/staff/mine/questions",headers=staff_headers).status_code==200
+            assert client.post("/api/staff-auth/logout",headers=staff_headers).status_code==200
+            assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
     finally:
         with psycopg.connect(admin,autocommit=True) as root:
             root.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
