@@ -38,8 +38,7 @@ def migrate(source_path, target_dsn, *, dry_run=True):
                 for table,columns in TABLES.items():
                     exists=src.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone()
                     if not exists:
-                        counts[table]=0
-                        continue
+                        raise ValueError(f"Source table {table} is missing; migration requires a fully initialized SQLite schema")
                     available={r[1] for r in src.execute(f"PRAGMA table_info({table})")}
                     selected=[col for col in columns if col in available]
                     if "id" in columns and "id" not in selected:
