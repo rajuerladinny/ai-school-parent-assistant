@@ -54,3 +54,10 @@ Passing CI verifies the isolated drill, not production operational readiness.
 - [x] Added tests for adapter routing, SQLite fallback and fail-closed PostgreSQL startup (`tests/test_postgres_fastapi_routing.py`).
 - [ ] Awaiting CI evidence for these changes.
 - [ ] PostgreSQL runtime activation remains deliberately blocked until API SQL compatibility, tenant isolation and real PostgreSQL FastAPI integration tests are verified. Do not remove the guard merely to enable production.
+
+## Priority 1, Step 3 — Verified HTTP integration (2026-10-18)
+
+- [x] PostgreSQL-backed FastAPI HTTP tests covering health, school-1 knowledge reads/creation/deletion, escalation list, active policies and unauthenticated staff rejection passed: [PostgreSQL Integration run 141](https://github.com/rajuerladinny/ai-school-parent-assistant/actions/runs/39146538472), commit `c55e2757c2928f710911c3334f9691833922c983`.
+- [x] General application suite passed: [School Assistant CI run 279](https://github.com/rajuerladinny/ai-school-parent-assistant/actions/runs/39146538349).
+- [ ] Full PostgreSQL API compatibility remains unverified for parent/staff login and sessions, policy upload/review, documents, escalations updates and cross-school tenant behavior.
+- [ ] Production PostgreSQL activation remains intentionally blocked.
