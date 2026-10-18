@@ -23,3 +23,13 @@ This branch consolidates the remaining implementation milestones. **Do not deplo
 ## Merge criteria
 
 Every checkbox requires a linked implementation/test or verification evidence. A green unit-test workflow alone does not satisfy migration, restore or security acceptance.
+
+## Verified implementation evidence (2026-10-18)
+
+- [x] PostgreSQL 16 schema smoke tests and adapter transaction tests passed in GitHub Actions (PR #27, merged).
+- [x] Staff login throttling and its unit test committed in PR #28; School Assistant CI run 235 passed.
+- [x] PostgreSQL schema includes staff accounts/sessions and bootstrap validation; PostgreSQL Schema Integration run 101 passed.
+- [x] Migration includes staff accounts/sessions, parent sessions, escalations/events and knowledge conflicts; source table/column validation tests passed in School Assistant CI run 239.
+- [ ] **Not verified:** Full migrated dataset integrity, actual PostgreSQL-backed API, restore drill, security assessment, and cross-tenant authorization for every endpoint.
+
+The completed subitems above do **not** satisfy the unchecked top-level release gates. Production readiness remains **BLOCKED**.
