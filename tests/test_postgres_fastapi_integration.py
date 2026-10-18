@@ -321,6 +321,33 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                 assert False, "Bootstrap should reject a school with an existing admin"
             except ValueError as exc:
                 assert "already has an administrator" in str(exc)
+            # Chat answers and escalations must remain within the parent's school.
+            from app import rag
+            monkeypatch.setattr(rag,"enabled",lambda:False)
+            monkeypatch.setattr(rag,"search",lambda question,limit=4,school_id=1: [])
+            with psycopg.connect(target) as seeded:
+                seeded.execute("INSERT INTO knowledge(school_id,topic,answer,source,active) "
+                               "VALUES(2,'SchoolTwoUniqueTerm','School two only answer','school-two',TRUE)")
+            school_two_login=client.post("/api/auth/login",json={
+                "username":"receiptparenttwo","password":"receipt-parent-password-123"})
+            assert school_two_login.status_code==200,school_two_login.text
+            school_two_headers={"authorization":"Bearer "+school_two_login.json()["access_token"]}
+            answer_two=client.post("/api/chat",headers=school_two_headers,
+                                   json={"question":"SchoolTwoUniqueTerm details"})
+            assert answer_two.status_code==200,answer_two.text
+            assert answer_two.json()["answer"]=="School two only answer"
+            answer_one=client.post("/api/chat",headers=new_headers,
+                                   json={"question":"SchoolTwoUniqueTerm details"})
+            # Disabled parent sessions must not work.
+            assert answer_one.status_code==401
+            escalated=client.post("/api/chat",headers=school_two_headers,
+                                  json={"question":"Unknown confidential question xyzzy"})
+            assert escalated.status_code==200,escalated.text
+            assert escalated.json()["needs_staff"] is True
+            with psycopg.connect(target) as seeded:
+                row=seeded.execute("SELECT school_id,parent_id FROM escalations WHERE id=%s",
+                    (escalated.json()["escalation_id"],)).fetchone()
+                assert row==(2,receipt_parent_id)
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
