@@ -96,7 +96,7 @@ def setup():
         staff_auth.setup(c)
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
-            c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?) RETURNING id",SAMPLE)
+            c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
 @app.on_event("startup")
 def startup():
     database_config.validate_configuration()
