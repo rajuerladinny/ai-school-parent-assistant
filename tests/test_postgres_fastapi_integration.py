@@ -143,6 +143,21 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert client.get("/api/auth/me",headers=other_parent_headers).json()["school_id"]==2
             blocked_chat=client.post("/api/chat",headers=other_parent_headers,json={"question":"What are school timings?"})
             assert blocked_chat.status_code==403,blocked_chat.text
+            assert client.get("/api/parent/questions",headers=other_parent_headers).status_code==403
+            assert client.get("/api/notifications/mine",headers=other_parent_headers).status_code==403
+            assert client.post(f"/api/notifications/mine/{policy_id}/read",headers=other_parent_headers).status_code==403
+            assert client.get("/api/parent/questions",headers=parent_headers).status_code==200
+            inbox=client.get("/api/notifications/mine",headers=parent_headers)
+            assert inbox.status_code==200,inbox.text
+            assert any(x["policy_id"]==policy_id for x in inbox.json())
+            receipt=client.post(f"/api/notifications/mine/{policy_id}/read",headers=parent_headers)
+            assert receipt.status_code==200,receipt.text
+            assert any(x["policy_id"]==policy_id and x["is_read"] for x in client.get("/api/notifications/mine",headers=parent_headers).json())
+            assert client.get("/api/notifications/admin/summary",headers=headers).status_code==200
+            assert all(x["school_id"]==1 for x in client.get("/api/knowledge",headers=headers).json())
+            assert all(x["school_id"]==1 for x in client.get("/api/escalations",headers=headers).json())
+            assert client.get("/api/parent/questions").status_code==401
+            assert client.get("/api/notifications/mine").status_code==401
             assert client.post("/api/staff-auth/logout",headers=staff_headers).status_code==200
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
     finally:
