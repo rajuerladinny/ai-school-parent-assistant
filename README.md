@@ -155,3 +155,8 @@ Individual school-linked `school_admin` and `staff` accounts can be provisioned 
 ## Backup and restore verification foundation
 
 `scripts/verify_postgres_restore.py` runs `pg_dump`, restores into a **separate empty disposable PostgreSQL database**, and compares row counts for core tables. Requires PostgreSQL client tools and `psycopg`. The script refuses identical source/restore DSN strings. **Do not pass two different DSN strings that refer to the same database.** This is a utility, not evidence of a completed recovery drill: the restore has not yet been run against the actual application's full schema and data. Production recovery also needs encrypted offsite storage, tested point-in-time recovery, retention, restore-time objectives, RAG/Chroma reindexing, and documented access controls.
+
+
+## PostgreSQL runtime adapter — incremental milestone
+
+`app/postgres_adapter.py` provides a psycopg-backed connection wrapper that converts parameter placeholders and returns dictionary rows. It deliberately rejects SQLite-only PRAGMA and INSERT OR IGNORE statements and requires explicit RETURNING id for PostgreSQL inserts. **The main application is not yet wired to this adapter**: its startup schema, implicit row IDs, SQLite DDL and transactional behavior must be migrated and end-to-end tested first. Do not configure a PostgreSQL DSN in `SCHOOL_DB` expecting it to work. The production SQLite startup restriction remains in place.
