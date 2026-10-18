@@ -191,6 +191,24 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert any(p["title"]=="School 2 Private Rules" for p in policies_two.json())
             assert client.get("/api/school-admin/policies",headers=staff_headers).status_code==403
             assert client.get("/api/school-admin/policies").status_code==401
+            policy_two=client.post("/api/school-admin/policies",headers=admin_two,
+                data={"policy_key":"school2_policy","title":"School Two Policy",
+                      "effective_date":"2026-01-01"},
+                files={"file":("rules.txt",b"School Two exclusive policy for students and families.","text/plain")})
+            assert policy_two.status_code==201,policy_two.text
+            policy_two_id=policy_two.json()["id"]
+            assert client.post(f"/api/school-admin/policies/{policy_two_id}/review",
+                headers=admin_one,json={"approve":True}).status_code==404
+            assert client.post(f"/api/school-admin/policies/{policy_two_id}/review",
+                headers=staff_headers,json={"approve":True}).status_code==403
+            approved_two=client.post(f"/api/school-admin/policies/{policy_two_id}/review",
+                headers=admin_two,json={"approve":True})
+            assert approved_two.status_code==200,approved_two.text
+            assert approved_two.json()["status"]=="approved"
+            assert client.post(f"/api/school-admin/policies/{policy_two_id}/review",
+                headers=admin_two,json={"approve":True}).status_code==409
+            assert all(p["id"]!=policy_two_id for p in client.get(
+                "/api/school-admin/policies",headers=admin_one).json())
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
