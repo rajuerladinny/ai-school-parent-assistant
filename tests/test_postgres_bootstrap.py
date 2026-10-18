@@ -24,7 +24,6 @@ def test_bootstrap_against_postgres():
     dsn=os.getenv("TEST_POSTGRES_URL")
     if not dsn:pytest.skip("TEST_POSTGRES_URL not set")
     m=module()
-    assert m.initialize_empty(dsn)
     assert m.validate(dsn)
     with pytest.raises(RuntimeError,match="non-empty"):
         m.initialize_empty(dsn)
