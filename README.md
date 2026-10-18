@@ -160,3 +160,8 @@ Individual school-linked `school_admin` and `staff` accounts can be provisioned 
 ## PostgreSQL runtime adapter — incremental milestone
 
 `app/postgres_adapter.py` provides a psycopg-backed connection wrapper that converts parameter placeholders and returns dictionary rows. It deliberately rejects SQLite-only PRAGMA and INSERT OR IGNORE statements and requires explicit RETURNING id for PostgreSQL inserts. **The main application is not yet wired to this adapter**: its startup schema, implicit row IDs, SQLite DDL and transactional behavior must be migrated and end-to-end tested first. Do not configure a PostgreSQL DSN in `SCHOOL_DB` expecting it to work. The production SQLite startup restriction remains in place.
+
+
+## Explicit PostgreSQL schema bootstrap
+
+`python scripts/postgres_bootstrap.py --dsn <POSTGRES_DSN> --initialize-empty` initializes only an empty PostgreSQL schema. Omitting `--initialize-empty` validates the required tables. CI exercises validation and rejects reinitializing a populated schema. This does **not** activate PostgreSQL as the FastAPI runtime; runtime SQL conversion, schema alignment and end-to-end tests are still required. Never embed real database credentials in shell history or logs.
