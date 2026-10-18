@@ -46,11 +46,11 @@ def db():
 def records_for_index():
     with db() as c:
         records=[]
-        for r in c.execute("SELECT id,topic,answer,source FROM knowledge WHERE active=1"):
-            records.append({"id":"faq-"+str(r["id"]),"topic":r["topic"],"source":r["source"],
+        for r in c.execute("SELECT id,topic,answer,source,school_id FROM knowledge WHERE active=1"):
+            records.append({"id":"faq-"+str(r["id"]),"school_id":r["school_id"],"topic":r["topic"],"source":r["source"],
                             "text":r["topic"]+"\n"+r["answer"]})
-        for r in c.execute("SELECT id,filename,title,content FROM documents WHERE active=1"):
-            records.append({"id":"doc-"+str(r["id"]),"topic":r["title"],
+        for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=1"):
+            records.append({"id":"doc-"+str(r["id"]),"school_id":r["school_id"],"topic":r["title"],
                             "source":r["filename"],"text":r["content"]})
         records.extend(policies.active_records(c))
         return records
@@ -75,6 +75,11 @@ def setup():
             id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1)""")
         c.execute("INSERT OR IGNORE INTO schools(id,slug,name) VALUES(1,'demo','Sunrise Valley School (demo)')")
+        for table in ("knowledge","documents"):
+            cols={r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+            if "school_id" not in cols:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN school_id INTEGER NOT NULL DEFAULT 1 REFERENCES schools(id)")
+            c.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_school ON {table}(school_id)")
         policies.setup(c)
         conflicts.setup(c)
         notifications.setup(c)
@@ -107,7 +112,7 @@ def fallback_search(question):
     words=set(re.findall(r"[a-z]{3,}",question.lower()))-{"what","when","where","will","school","please","about","today","tomorrow","there","have","the","for","are","can","you"}
     with db() as c:
         ranked=[]
-        for row in c.execute("SELECT * FROM knowledge WHERE active=1"):
+        for row in c.execute("SELECT * FROM knowledge WHERE active=1 AND school_id=1"):
             topic=set(re.findall(r"[a-z]{3,}",row["topic"].lower()))
             score=4*len(words&topic)
             if score:ranked.append((score,dict(row)))
@@ -143,7 +148,7 @@ def health():
 @app.get("/api/knowledge")
 def knowledge(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
-    with db() as c:return [dict(x) for x in c.execute("SELECT * FROM knowledge ORDER BY id")]
+    with db() as c:return [dict(x) for x in c.execute("SELECT * FROM knowledge WHERE school_id=1 ORDER BY id")]
 @app.post("/api/knowledge",status_code=201)
 def add(item:Item,x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
@@ -156,14 +161,14 @@ def add(item:Item,x_admin_key:str|None=Header(None)):
 def delete(id:int,x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        if not c.execute("DELETE FROM knowledge WHERE id=?",(id,)).rowcount:raise HTTPException(404,"Not found")
+        if not c.execute("DELETE FROM knowledge WHERE id=? AND school_id=1",(id,)).rowcount:raise HTTPException(404,"Not found")
     rebuild_index()
     return {"deleted":True}
 @app.get("/api/documents")
 def documents(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        return [dict(x) for x in c.execute("SELECT id,filename,title,active,uploaded_at,length(content) AS characters FROM documents ORDER BY id DESC")]
+        return [dict(x) for x in c.execute("SELECT id,filename,title,active,uploaded_at,length(content) AS characters FROM documents WHERE school_id=1 ORDER BY id DESC")]
 def extract_text(filename, data):
     suffix=Path(filename).suffix.lower()
     if suffix in (".txt",".md"):
@@ -208,7 +213,7 @@ async def upload_document(file:UploadFile=File(...),title:str=Form("School docum
 def delete_document(id:int,x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        if not c.execute("DELETE FROM documents WHERE id=?",(id,)).rowcount:raise HTTPException(404,"Document not found")
+        if not c.execute("DELETE FROM documents WHERE id=? AND school_id=1",(id,)).rowcount:raise HTTPException(404,"Document not found")
     rebuild_index()
     return {"deleted":True}
 @app.post("/api/chat")
