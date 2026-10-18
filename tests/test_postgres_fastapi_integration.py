@@ -158,6 +158,16 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert receipt.status_code==200,receipt.text
             assert any(x["policy_id"]==policy_id and x["is_read"] for x in client.get("/api/notifications/mine",headers=parent_headers).json())
             assert client.get("/api/notifications/admin/summary",headers=headers).status_code==200
+            from app import staff as staff_routes
+            monkeypatch.setenv("SCHOOL_ENV","production")
+            try:
+                assert client.get("/api/staff/questions",headers=headers).status_code==403
+                assert client.patch(f"/api/staff/questions/{question_id}",headers=headers,json={
+                    "status":"resolved","resolution":"legacy access denied"}).status_code==403
+                assert client.get(f"/api/staff/questions/{question_id}/history",headers=headers).status_code==403
+                assert client.get("/api/staff/mine/questions",headers=staff_headers).status_code==200
+            finally:
+                monkeypatch.setenv("SCHOOL_ENV","test")
             from app import rag
             class ScopedCollection:
                 def __init__(self):self.scopes=[]
