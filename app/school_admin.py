@@ -49,3 +49,32 @@ def delete_knowledge(item_id: int, authorization: str | None = Header(None)):
             raise HTTPException(404, "Knowledge item not found")
     _reindex()
     return {"deleted": True}
+
+@router.get("/documents")
+def list_documents(authorization: str | None = Header(None)):
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        return [dict(row) for row in c.execute(
+            "SELECT id,filename,title,active,uploaded_at,length(content) AS characters "
+            "FROM documents WHERE school_id=? ORDER BY id DESC",
+            (user["school_id"],))]
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: int, authorization: str | None = Header(None)):
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        result = c.execute(
+            "DELETE FROM documents WHERE id=? AND school_id=?",
+            (document_id, user["school_id"]))
+        if not result.rowcount:
+            raise HTTPException(404, "Document not found")
+    _reindex()
+    return {"deleted": True}
+
+@router.get("/escalations")
+def list_escalations(authorization: str | None = Header(None)):
+    with _db() as c:
+        user = staff_auth.principal(c, authorization, roles=("school_admin",))
+        return [dict(row) for row in c.execute(
+            "SELECT * FROM escalations WHERE school_id=? ORDER BY id DESC",
+            (user["school_id"],))]
