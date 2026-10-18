@@ -74,7 +74,7 @@ def setup():
         c.execute("""CREATE TABLE IF NOT EXISTS schools(
             id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1)""")
-        c.execute("INSERT OR IGNORE INTO schools(id,slug,name) VALUES(1,'demo','Sunrise Valley School (demo)')")
+        c.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Sunrise Valley School (demo)') ON CONFLICT DO NOTHING")
         for table in ("knowledge","documents"):
             cols={r[1] for r in c.execute(f"PRAGMA table_info({table})")}
             if "school_id" not in cols:

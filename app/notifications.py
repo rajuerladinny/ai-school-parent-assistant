@@ -55,6 +55,6 @@ def mark_my_read(policy_id:int,authorization:str|None=Header(None)):
         found=c.execute("SELECT id FROM policy_versions WHERE id=? AND school_id=? AND status='approved' AND effective_date<=?",
                         (policy_id,p["school_id"],date.today().isoformat())).fetchone()
         if not found:raise HTTPException(404,"Notification not available")
-        c.execute("INSERT OR IGNORE INTO parent_notification_reads(parent_id,policy_id) VALUES(?,?)",
+        c.execute("INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES(?,?) ON CONFLICT DO NOTHING",
                   (p["id"],policy_id))
     return {"read":True}
