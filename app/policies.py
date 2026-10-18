@@ -7,6 +7,7 @@ import sqlite3
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
+from . import conflicts
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 _db = None
@@ -102,6 +103,10 @@ def review_policy(policy_id: int, decision: Decision, x_admin_key: str | None = 
         row = c.execute("SELECT status FROM policy_versions WHERE id=?", (policy_id,)).fetchone()
         if not row: raise HTTPException(404, "Policy version not found")
         if row["status"] != "draft": raise HTTPException(409, "Only draft versions can be reviewed")
+        if decision.approve:
+            unresolved = conflicts.pending(c, policy_id)
+            if unresolved:
+                raise HTTPException(409, f"{unresolved} unresolved legacy knowledge overlap(s); deactivate outdated items before approval")
         status = "approved" if decision.approve else "rejected"
         c.execute("UPDATE policy_versions SET status=?,reviewed_at=? WHERE id=?",
                   (status,datetime.now(timezone.utc).isoformat(),policy_id))
