@@ -79,3 +79,15 @@ def test_redis_outage_fails_closed(monkeypatch):
         shared_login_limit.check("parent", "alice", "192.0.2.1")
     assert error.value.status_code == 503
     assert "redis" not in str(error.value.detail).lower()
+
+@pytest.mark.parametrize("url", [
+    "rediss://", "rediss:///0", "rediss://localhost:6379/0#fragment",
+    "https://localhost:6379",
+])
+def test_invalid_redis_url_fails_closed(monkeypatch, url):
+    monkeypatch.setenv("SCHOOL_ENV", "production")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", url)
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "s" * 40)
+    with pytest.raises(HTTPException) as error:
+        shared_login_limit.check("staff", "alice", "192.0.2.1")
+    assert error.value.status_code == 503
