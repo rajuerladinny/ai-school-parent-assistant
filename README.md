@@ -6,7 +6,7 @@
 
 **Technology:** Python · FastAPI · SQLite (development) · PostgreSQL integration (under validation) · optional ChromaDB / Sentence Transformers · optional Ollama.
 
-**Get involved:** See [CONTRIBUTING.md](CONTRIBUTING.md). Please avoid uploading any real student or parent data. The repository does not yet have an open-source license; one must be chosen before inviting code reuse.
+**Get involved:** See [CONTRIBUTING.md](CONTRIBUTING.md). Please avoid uploading any real student or parent data. The project uses the Apache License 2.0; see [LICENSE](LICENSE).
 
 **Suggested GitHub topics:** `edtech`, `school-communication`, `parent-engagement`, `fastapi`, `python`, `rag`, `postgresql`, `education`.
 
