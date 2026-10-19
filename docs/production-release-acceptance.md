@@ -35,3 +35,28 @@ This checklist is a release gate, not evidence that any item has passed. CI pass
 ## Database fail-closed regression gate
 
 Automated tests in `tests/test_database_release_gate.py` require rejection of SQLite production mode, invalid PostgreSQL URLs, and a manual `SCHOOL_POSTGRES_RUNTIME_READY=1` override while the runtime adapter is incomplete. A passing schema integration workflow **does not** authorize a production launch. Before removing this gate, demonstrate runtime query compatibility, school isolation, migrations, backup/restore, rollback, and production-like end-to-end tests. Record explicit approval before deployment.
+
+## Local verification evidence — 2026-10-19 (Windows, PostgreSQL 16.15, Memurai)
+
+The following are **developer-reported local test results**, not CI or independent production acceptance. No real school records or public deployment were used.
+
+| Verification | Observed result | Limitation |
+| --- | --- | --- |
+| Full pytest suite after login input validation | 109 passed, 2 skipped, 3 warnings | Two optional ChromaDB tests not run; deprecation warnings remain |
+| Full PostgreSQL test suite repeatability (before latest auth changes) | 99 passed twice, 2 skipped | Disposable PostgreSQL 16 test databases, not a production workload |
+| Targeted migration/restore, operational alert and authentication observability tests | 4 passed, 2 warnings | Does not verify encrypted backups, RPO/RTO or external alert delivery |
+| Redis-compatible local Memurai connection | PING returned True | Loopback only, no production TLS or authenticated Redis configuration |
+| Live Redis-backed parent account throttle | Attempts 1–5 allowed; attempt 6 returned HTTP 429 | One local Python process; cross-worker load untested |
+| Live Redis-backed staff source-IP throttle | Attempts 1–30 allowed; attempt 31 returned HTTP 429 | Isolated synthetic IP; trusted-proxy behavior untested |
+| Redis unavailable (unused loopback port) | HTTP 503, fail-closed | Does not replace network failure drills in staging |
+| Local Gitleaks history scan | No leaks found in scanned 345 commits | GitHub alerts and all reachable refs not independently verified |
+| pip-audit of installed environment | No known vulnerabilities reported | Optional RAG dependencies and clean locked dependency resolution not verified |
+
+### Outstanding acceptance blockers
+
+- **Production runtime:** PostgreSQL adapter activation remains explicitly blocked; SQLite production is also blocked. Do not bypass these checks.
+- **Identity:** Managed identity provider, administrator MFA, password recovery, privileged authorization review, and end-to-end tenant isolation still require implementation and acceptance.
+- **Ingress and Redis:** Trusted-proxy/IP handling, production HTTPS/TLS termination, Redis TLS/authentication and multi-worker throttling still need staging evidence.
+- **Operations:** Centralized logs, rolling-window fleet metrics, tested alerts/on-call, privacy review, encrypted backup retention and RPO/RTO remain unverified.
+- **Repository:** Branch protection enforcement, GitHub secret-scanning alerts, optional RAG audit, ChromaDB integration, and full Apache-2.0 license text remain outstanding.
+- **Release:** No deployment, PR merge, or production approval is implied by local test success.
