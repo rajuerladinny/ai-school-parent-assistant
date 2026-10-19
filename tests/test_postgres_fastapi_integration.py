@@ -324,6 +324,7 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             # Chat answers and escalations must remain within the parent's school.
             from app import rag
             monkeypatch.setattr(rag,"enabled",lambda:False)
+            original_rag_search=rag.search
             monkeypatch.setattr(rag,"search",lambda question,limit=4,school_id=1: [])
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO knowledge(school_id,topic,answer,source,active) "
@@ -348,6 +349,7 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                 row=seeded.execute("SELECT school_id,parent_id FROM escalations WHERE id=%s",
                     (escalated.json()["escalation_id"],)).fetchone()
                 assert row==(2,receipt_parent_id)
+            monkeypatch.setattr(rag,"search",original_rag_search)
             # Document and escalation administration is tenant-scoped too.
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO documents(school_id,filename,title,content,uploaded_at) "
