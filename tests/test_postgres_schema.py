@@ -63,6 +63,12 @@ def test_postgres_schema_against_ephemeral_database():
                 validate(url)
             cur.execute("ALTER TABLE parent_notification_reads ENABLE TRIGGER trg_parent_notification_school")
             assert validate(url) is True
+            # A table in another schema must not satisfy current-schema validation.
+            cur.execute("ALTER TABLE policy_versions RENAME COLUMN school_id TO school_id_missing")
+            with pytest.raises(RuntimeError,match="Tenant-aware policy schema"):
+                validate(url)
+            cur.execute("ALTER TABLE policy_versions RENAME COLUMN school_id_missing TO school_id")
+            assert validate(url) is True
             cur.execute("SELECT COUNT(*) FROM policy_versions WHERE policy_key='fees'")
             assert cur.fetchone()[0]==2
             with pytest.raises(psycopg.errors.UniqueViolation):
