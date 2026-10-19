@@ -80,7 +80,9 @@ def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else "unknown"
     _limit_login(item.username,ip)
     with _db() as c:
-        account=c.execute("SELECT * FROM staff_accounts WHERE username=?",(item.username.lower(),)).fetchone()
+        account=c.execute("""SELECT a.* FROM staff_accounts a
+            JOIN schools sc ON sc.id=a.school_id
+            WHERE a.username=? AND sc.active=TRUE""",(item.username.lower(),)).fetchone()
         if not account or not account["enabled"] or not hmac.compare_digest(
                 digest(item.password,account["salt"]),account["password_hash"]):
             raise HTTPException(401,"Invalid credentials")
