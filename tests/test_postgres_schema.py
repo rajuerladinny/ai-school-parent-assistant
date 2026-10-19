@@ -47,6 +47,11 @@ def test_postgres_schema_against_ephemeral_database():
             assert cur.fetchone()[0]==0
             cur.execute("SELECT COUNT(*) FROM staff_sessions WHERE staff_id=%s",(staff_id,))
             assert cur.fetchone()[0]==0
+            cur.execute("ALTER TABLE schools DISABLE TRIGGER trg_revoke_school_sessions")
+            with pytest.raises(RuntimeError,match="session-revocation trigger"):
+                validate(url)
+            cur.execute("ALTER TABLE schools ENABLE TRIGGER trg_revoke_school_sessions")
+            assert validate(url) is True
             cur.execute("ALTER TABLE parent_notification_reads DISABLE TRIGGER trg_parent_notification_school")
             with pytest.raises(RuntimeError,match="tenant-isolation trigger"):
                 validate(url)
