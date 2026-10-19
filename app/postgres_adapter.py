@@ -45,6 +45,8 @@ class CursorAdapter:
     def fetchall(self):return [RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor.fetchall()]
     def __iter__(self):
         return (RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor)
+    def fetchmany(self,size=1):
+        return [RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor.fetchmany(size)]
     @property
     def rowcount(self):return self._cursor.rowcount
     @property
