@@ -303,10 +303,12 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                 seeded.execute(
                     "INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES (%s,%s)",
                     (receipt_parent_id,policy_two_id))
-                # Even an inconsistent cross-school receipt must not leak into either total.
-                seeded.execute(
-                    "INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES (%s,%s)",
-                    (receipt_parent_id,policy_id))
+                # The database must reject cross-school receipts outright.
+                with pytest.raises(psycopg.errors.CheckViolation):
+                    with seeded.transaction():
+                        seeded.execute(
+                            "INSERT INTO parent_notification_reads(parent_id,policy_id) VALUES (%s,%s)",
+                            (receipt_parent_id,policy_id))
             summary_one=client.get("/api/school-admin/notifications/summary",headers=admin_one)
             summary_two=client.get("/api/school-admin/notifications/summary",headers=admin_two)
             assert summary_one.status_code==200 and summary_two.status_code==200
