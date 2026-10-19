@@ -97,6 +97,7 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             with psycopg.connect(target) as revoke_conn:
                 revoke_conn.execute("UPDATE schools SET active=FALSE WHERE id=1")
                 revoke_conn.execute("UPDATE schools SET active=TRUE WHERE id=1")
+            assert client.get("/api/auth/me",headers=parent_headers).status_code==401
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
             # Re-login is required after reactivation.
             staff_login=client.post("/api/staff-auth/login",json={
