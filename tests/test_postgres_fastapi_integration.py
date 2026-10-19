@@ -458,6 +458,23 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             safe=rag.search("private",school_id=1)
             assert [x["text"] for x in safe]==["School 1 public"]
             assert all("SECRET" not in x["text"] for x in safe)
+            # Exercise the HTTP chat boundary, not just the RAG helper: a
+            # misbehaving vector backend must not leak cross-school passages.
+            monkeypatch.setattr(rag,"enabled",lambda:True)
+            chat_safe=client.post("/api/chat",headers=parent_headers,
+                                  json={"question":"private school details"})
+            assert chat_safe.status_code==200,chat_safe.text
+            assert chat_safe.json()["needs_staff"] is False
+            assert "SECRET" not in chat_safe.json()["answer"]
+            assert chat_safe.json()["source"]=="own"
+            chat_other=client.post("/api/chat",headers=other_parent_headers,
+                                   json={"question":"private school details"})
+            assert chat_other.status_code==200,chat_other.text
+            assert chat_other.json()["needs_staff"] is True
+            assert "SECRET" not in chat_other.json()["answer"]
+            with psycopg.connect(target) as seeded:
+                assert seeded.execute("SELECT school_id FROM escalations WHERE id=%s",
+                    (chat_other.json()["escalation_id"],)).fetchone()[0]==2
             for invalid_school in (0,-1,None,True,"2"):
                 with pytest.raises(ValueError):
                     rag.search("school policies",school_id=invalid_school)
