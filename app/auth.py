@@ -61,8 +61,9 @@ class CreateParent(BaseModel):
     password:str=Field(min_length=12,max_length=128)
 
 class Credentials(BaseModel):
-    username:str
-    password:str
+    # Bound untrusted login payloads before expensive password hashing or Redis calls.
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=128)
 
 @router.post("/parents",status_code=201)
 def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
