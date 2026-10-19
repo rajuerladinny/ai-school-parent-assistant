@@ -78,3 +78,14 @@ def test_executemany_closes_cursor_on_error():
     with pytest.raises(ValueError,match="database error"):
         ConnectionAdapter(connection).executemany("INSERT INTO sample(value) VALUES(?)",[(1,)])
     assert connection.cur.closed
+
+
+def test_executemany_rejects_sqlite_only_statements_before_opening_cursor():
+    class FakeConnection:
+        def cursor(self):
+            raise AssertionError("Unsupported SQL must be rejected before opening cursor")
+    adapter=ConnectionAdapter(FakeConnection())
+    with pytest.raises(NotImplementedError, match="SQLite-only SQL"):
+        adapter.executemany("INSERT OR IGNORE INTO schools(id) VALUES(?)", [(1,)])
+    with pytest.raises(NotImplementedError, match="SQLite-only SQL"):
+        adapter.executemany("PRAGMA foreign_keys=ON", [])
