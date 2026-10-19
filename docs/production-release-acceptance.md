@@ -5,7 +5,7 @@
 This checklist is a release gate, not evidence that any item has passed. CI passing is necessary but insufficient.
 
 ## Identity and tenant isolation
-- [ ] Replace in-memory parent and staff login throttling with a shared, atomic, per-account and per-source-IP limiter. Verify behavior across multiple worker instances, with retry and lockout tests.
+- [ ] Shared Redis atomic per-account and per-source-IP limiter implemented with unit tests. Still verify real Redis behavior across multiple worker instances, with retry and lockout tests.
 - [ ] Decide on a managed identity provider, MFA for administrators, password reset, account recovery, session expiry and explicit session revocation.
 - [ ] Verify disabled schools, parents and staff cannot log in or use existing sessions. Test cross-school data boundaries in API, SQL and RAG.
 - [ ] Review authorization for all write endpoints; ensure legacy shared-admin-key endpoints cannot be used in production.
@@ -19,7 +19,7 @@ This checklist is a release gate, not evidence that any item has passed. CI pass
 - [ ] Run a staging deployment with representative traffic and a documented rollback exercise.
 
 ## Observability and incident response
-- [ ] Emit structured, redacted request logs with correlation IDs, response status and latency. Never log bearer tokens, passwords or parent messages by default.
+- [ ] Redacted structured HTTP logs with correlation IDs, status class and latency implemented. Validate centralized collection and never log bearer tokens, passwords or parent messages by default.
 - [ ] Monitor error rate, request latency, authentication throttling, database connection health, RAG failures and queue/backlog health.
 - [ ] Configure alert destinations, escalation ownership, severity thresholds and a tested on-call response path.
 - [ ] Record incident response, data retention and privacy review outcomes.
