@@ -392,8 +392,15 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert own_questions.status_code==200
             assert any(q["id"]==blocked_chat.json()["escalation_id"] for q in own_questions.json())
             assert all("question" in q and "status" in q for q in own_questions.json())
-            assert client.get("/api/notifications/mine",headers=other_parent_headers).status_code==403
-            assert client.post(f"/api/notifications/mine/{policy_id}/read",headers=other_parent_headers).status_code==403
+            other_inbox=client.get("/api/notifications/mine",headers=other_parent_headers)
+            assert other_inbox.status_code==200,other_inbox.text
+            assert all(p["policy_id"]!=policy_id for p in other_inbox.json())
+            assert client.post(f"/api/notifications/mine/{policy_id}/read",
+                               headers=other_parent_headers).status_code==404
+            assert client.post(f"/api/notifications/mine/{policy_two_id}/read",
+                               headers=other_parent_headers).status_code==200
+            other_inbox=client.get("/api/notifications/mine",headers=other_parent_headers)
+            assert any(p["policy_id"]==policy_two_id and p["is_read"] for p in other_inbox.json())
             parent_relogin=client.post("/api/auth/login",json={
                 "username":"pgparent","password":"secure-parent-pass-123"})
             assert parent_relogin.status_code==200,parent_relogin.text
