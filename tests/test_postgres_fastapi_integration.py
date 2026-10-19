@@ -388,7 +388,10 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             with psycopg.connect(target) as seeded:
                 assert seeded.execute("SELECT school_id FROM escalations WHERE id=%s",
                     (blocked_chat.json()["escalation_id"],)).fetchone()[0]==2
-            assert client.get("/api/parent/questions",headers=other_parent_headers).status_code==403
+            own_questions=client.get("/api/parent/questions",headers=other_parent_headers)
+            assert own_questions.status_code==200
+            assert any(q["id"]==blocked_chat.json()["escalation_id"] for q in own_questions.json())
+            assert all(q["id"]!=escalated.json()["escalation_id"] or q["id"]==blocked_chat.json()["escalation_id"] for q in own_questions.json())
             assert client.get("/api/notifications/mine",headers=other_parent_headers).status_code==403
             assert client.post(f"/api/notifications/mine/{policy_id}/read",headers=other_parent_headers).status_code==403
             parent_relogin=client.post("/api/auth/login",json={
