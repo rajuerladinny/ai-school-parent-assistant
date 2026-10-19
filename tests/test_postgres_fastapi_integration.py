@@ -397,6 +397,9 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert other_parent_login.status_code==200,other_parent_login.text
             other_parent_headers={"authorization":"Bearer "+other_parent_login.json()["access_token"]}
             assert client.get("/api/auth/me",headers=other_parent_headers).json()["school_id"]==2
+            # Exercise SQL tenant isolation and escalation, not optional vector
+            # retrieval; a developer's persistent Chroma index must not affect this.
+            monkeypatch.setattr(rag,"search",lambda question,limit=4,school_id=1: [])
             blocked_chat=client.post("/api/chat",headers=other_parent_headers,json={"question":"What are school timings?"})
             assert blocked_chat.status_code==200,blocked_chat.text
             assert blocked_chat.json()["needs_staff"] is True
