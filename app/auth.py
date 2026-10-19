@@ -82,7 +82,9 @@ def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else 'unknown'
     _check_login_limit(item.username,ip)
     with _db() as c:
-        row=c.execute("SELECT * FROM parent_accounts WHERE username=?",(item.username,)).fetchone()
+        row=c.execute("""SELECT a.* FROM parent_accounts a
+            JOIN schools sc ON sc.id=a.school_id
+            WHERE a.username=? AND sc.active=TRUE""",(item.username,)).fetchone()
         # Same generic error for unknown user, wrong password, or disabled account.
         if not row or not row["enabled"] or not hmac.compare_digest(
             digest(item.password,row["salt"]),row["password_hash"]):
