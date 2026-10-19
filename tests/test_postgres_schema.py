@@ -28,6 +28,13 @@ def test_postgres_schema_against_ephemeral_database():
             for school_id in ids:
                 cur.execute("""INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date)
                                VALUES(%s,'fees',1,'Fees','fees.txt','Demo policy','2026-01-01')""",(school_id,))
+            from scripts.postgres_bootstrap import validate
+            assert validate(url) is True
+            cur.execute("ALTER TABLE parent_notification_reads DISABLE TRIGGER trg_parent_notification_school")
+            with pytest.raises(RuntimeError,match="tenant-isolation trigger"):
+                validate(url)
+            cur.execute("ALTER TABLE parent_notification_reads ENABLE TRIGGER trg_parent_notification_school")
+            assert validate(url) is True
             cur.execute("SELECT COUNT(*) FROM policy_versions WHERE policy_key='fees'")
             assert cur.fetchone()[0]==2
             with pytest.raises(psycopg.errors.UniqueViolation):

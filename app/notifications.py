@@ -29,7 +29,7 @@ def setup(c):
 def summary(x_admin_key:str|None=Header(None)):
     _auth(x_admin_key)
     with _db() as c:
-        return {"authenticated_parents":c.execute("SELECT COUNT(*) FROM parent_accounts WHERE enabled=1").fetchone()[0],
+        return {"authenticated_parents":c.execute("SELECT COUNT(*) FROM parent_accounts WHERE enabled=TRUE").fetchone()[0],
                 "parent_read_receipts":c.execute("SELECT COUNT(*) FROM parent_notification_reads").fetchone()[0]}
 
 # Authenticated parent inbox: read receipts are isolated by parent account.
@@ -37,7 +37,6 @@ def summary(x_admin_key:str|None=Header(None)):
 def my_inbox(authorization:str|None=Header(None)):
     with _db() as c:
         p=parent_auth.parent(c,authorization)
-        parent_auth.require_demo_school(p)
         return [dict(r) for r in c.execute("""SELECT p.id AS policy_id,p.policy_key,p.title,
             p.version,p.effective_date,
             CASE WHEN r.policy_id IS NULL THEN 0 ELSE 1 END AS is_read
@@ -51,7 +50,6 @@ def my_inbox(authorization:str|None=Header(None)):
 def mark_my_read(policy_id:int,authorization:str|None=Header(None)):
     with _db() as c:
         p=parent_auth.parent(c,authorization)
-        parent_auth.require_demo_school(p)
         found=c.execute("SELECT id FROM policy_versions WHERE id=? AND school_id=? AND status='approved' AND effective_date<=?",
                         (policy_id,p["school_id"],date.today().isoformat())).fetchone()
         if not found:raise HTTPException(404,"Notification not available")

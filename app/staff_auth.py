@@ -6,12 +6,33 @@ import hashlib
 import hmac
 import secrets
 import sqlite3
+import threading
+import time
 from datetime import datetime,timedelta,timezone
-from fastapi import APIRouter,Header,HTTPException
+from fastapi import APIRouter,Header,HTTPException,Request
 from pydantic import BaseModel,Field
 from .auth import digest
 
 router=APIRouter(prefix="/api/staff-auth",tags=["staff-auth"])
+_attempts={}
+_attempt_lock=threading.Lock()
+_WINDOW=300
+_LIMIT=5
+
+def _limit_login(username,ip):
+    now=time.monotonic()
+    key=(ip,username.lower())
+    with _attempt_lock:
+        for old,(start,_) in list(_attempts.items()):
+            if now-start>_WINDOW:del _attempts[old]
+        start,count=_attempts.get(key,(now,0))
+        if count>=_LIMIT:
+            raise HTTPException(429,"Too many login attempts; try again later",headers={"Retry-After":str(_WINDOW)})
+        _attempts[key]=(start,count+1)
+
+def _clear_login(username,ip):
+    with _attempt_lock:_attempts.pop((ip,username.lower()),None)
+
 _db=_admin=None
 
 def configure(db,admin):
@@ -45,7 +66,7 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
     _admin(x_admin_key)
     salt=secrets.token_hex(16)
     with _db() as c:
-        if not c.execute("SELECT 1 FROM schools WHERE id=? AND active=1",(item.school_id,)).fetchone():
+        if not c.execute("SELECT 1 FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone():
             raise HTTPException(404,"School not found")
         try:
             cur=c.execute("""INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role)
@@ -55,7 +76,9 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
         return {"id":cur.fetchone()["id"],"school_id":item.school_id,"role":item.role}
 
 @router.post("/login")
-def login(item:Credentials):
+def login(item:Credentials,request:Request):
+    ip=request.client.host if request.client else "unknown"
+    _limit_login(item.username,ip)
     with _db() as c:
         account=c.execute("SELECT * FROM staff_accounts WHERE username=?",(item.username.lower(),)).fetchone()
         if not account or not account["enabled"] or not hmac.compare_digest(
@@ -65,6 +88,7 @@ def login(item:Credentials):
         expires=(datetime.now(timezone.utc)+timedelta(hours=8)).isoformat()
         c.execute("INSERT INTO staff_sessions(token_hash,staff_id,expires_at) VALUES(?,?,?)",
                   (hashlib.sha256(token.encode()).hexdigest(),account["id"],expires))
+    _clear_login(item.username,ip)
     return {"access_token":token,"token_type":"bearer","expires_at":expires,"role":account["role"]}
 
 def principal(c,authorization,roles=("school_admin","staff")):
@@ -72,7 +96,7 @@ def principal(c,authorization,roles=("school_admin","staff")):
         raise HTTPException(401,"Staff login required")
     row=c.execute("""SELECT a.id,a.school_id,a.username,a.display_name,a.role FROM staff_sessions s
         JOIN staff_accounts a ON a.id=s.staff_id JOIN schools sc ON sc.id=a.school_id
-        WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=1 AND sc.active=1""",
+        WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE AND sc.active=TRUE""",
         (hashlib.sha256(authorization[7:].encode()).hexdigest(),datetime.now(timezone.utc).isoformat())).fetchone()
     if not row:raise HTTPException(401,"Invalid or expired staff session")
     if row["role"] not in roles:raise HTTPException(403,"Insufficient staff permissions")

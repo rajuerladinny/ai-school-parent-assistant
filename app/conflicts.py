@@ -31,36 +31,36 @@ def setup(c):
 def norm(s):
     return re.sub(r"[^a-z0-9]+", "", s.lower())
 
-def candidates(c, policy):
+def candidates(c, policy, school_id=1):
     """Flag explicit topic/key matches; document titles must match, not fuzzy tokens."""
     keys={norm(policy["policy_key"]),norm(policy["title"])}
     keys.discard("")
     result=[]
-    for x in c.execute("SELECT id,topic FROM knowledge WHERE active=1 AND school_id=1"):
+    for x in c.execute("SELECT id,topic FROM knowledge WHERE active=TRUE AND school_id=?", (school_id,)):
         if norm(x["topic"]) in keys:
             result.append(("faq",x["id"],x["topic"]))
-    for x in c.execute("SELECT id,title FROM documents WHERE active=1 AND school_id=1"):
+    for x in c.execute("SELECT id,title FROM documents WHERE active=TRUE AND school_id=1"):
         if norm(x["title"]) in keys:
             result.append(("document",x["id"],x["title"]))
     return result
 
-def scan(c, policy_id):
-    p=c.execute("SELECT * FROM policy_versions WHERE id=? AND school_id=1", (policy_id,)).fetchone()
+def scan(c, policy_id, school_id=1):
+    p=c.execute("SELECT * FROM policy_versions WHERE id=? AND school_id=?", (policy_id,school_id)).fetchone()
     if not p: raise HTTPException(404,"Policy not found")
-    for kind, id, _ in candidates(c,p):
+    for kind, id, _ in candidates(c,p,school_id):
         c.execute("""INSERT INTO knowledge_conflicts(policy_id,legacy_type,legacy_id)
                      VALUES(?,?,?) ON CONFLICT DO NOTHING""",(policy_id,kind,id))
     # Closed legacy sources resolve their conflicts; reactivation creates open conflicts.
     c.execute("""UPDATE knowledge_conflicts SET status='resolved',resolved_at=CURRENT_TIMESTAMP
         WHERE policy_id=? AND status='open' AND (
-          (legacy_type='faq' AND NOT EXISTS(SELECT 1 FROM knowledge k WHERE k.id=legacy_id AND k.active=1))
-          OR (legacy_type='document' AND NOT EXISTS(SELECT 1 FROM documents d WHERE d.id=legacy_id AND d.active=1))
+          (legacy_type='faq' AND NOT EXISTS(SELECT 1 FROM knowledge k WHERE k.id=legacy_id AND k.active=TRUE))
+          OR (legacy_type='document' AND NOT EXISTS(SELECT 1 FROM documents d WHERE d.id=legacy_id AND d.active=TRUE))
         )""",(policy_id,))
     return c.execute("""SELECT id,legacy_type,legacy_id,status FROM knowledge_conflicts
                         WHERE policy_id=? ORDER BY id""",(policy_id,)).fetchall()
 
-def pending(c, policy_id):
-    scan(c,policy_id)
+def pending(c, policy_id, school_id=1):
+    scan(c,policy_id,school_id)
     return c.execute("SELECT COUNT(*) FROM knowledge_conflicts WHERE policy_id=? AND status='open'",(policy_id,)).fetchone()[0]
 
 @router.get("")
@@ -85,7 +85,7 @@ def deactivate(kind:str,item_id:int,x_admin_key: str | None=Header(None)):
     if kind not in ("faq","document"):raise HTTPException(422,"Invalid knowledge type")
     table="knowledge" if kind=="faq" else "documents"
     with _db() as c:
-        if not c.execute(f"UPDATE {table} SET active=0 WHERE id=? AND school_id=1 AND active=1",(item_id,)).rowcount:
+        if not c.execute(f"UPDATE {table} SET active=FALSE WHERE id=? AND school_id=1 AND active=TRUE",(item_id,)).rowcount:
             raise HTTPException(404,"Active knowledge item not found")
         c.execute("""UPDATE knowledge_conflicts SET status='resolved',resolved_at=CURRENT_TIMESTAMP
             WHERE legacy_type=? AND legacy_id=? AND status='open'""",(kind,item_id))
@@ -98,14 +98,14 @@ def activate(kind:str,item_id:int,x_admin_key: str | None=Header(None)):
     if kind not in ("faq","document"):raise HTTPException(422,"Invalid knowledge type")
     table="knowledge" if kind=="faq" else "documents"
     with _db() as c:
-        existing=c.execute(f"SELECT * FROM {table} WHERE id=? AND school_id=1 AND active=0",(item_id,)).fetchone()
+        existing=c.execute(f"SELECT * FROM {table} WHERE id=? AND school_id=1 AND active=FALSE",(item_id,)).fetchone()
         if not existing: raise HTTPException(404,"Inactive knowledge item not found")
         topic=existing["topic"] if kind=="faq" else existing["title"]
         from . import policies
         for policy in policies.current_versions(c):
             if norm(topic) in {norm(policy["policy_key"]),norm(policy["title"])}:
                 raise HTTPException(409,"Current approved policy covers this topic; cannot reactivate outdated knowledge")
-        if not c.execute(f"UPDATE {table} SET active=1 WHERE id=? AND school_id=1 AND active=0",(item_id,)).rowcount:
+        if not c.execute(f"UPDATE {table} SET active=TRUE WHERE id=? AND school_id=1 AND active=FALSE",(item_id,)).rowcount:
             raise HTTPException(404,"Inactive knowledge item not found")
         # Reopening conflicts prevents silently reintroducing old facts.
         c.execute("""UPDATE knowledge_conflicts SET status='open',resolved_at=NULL

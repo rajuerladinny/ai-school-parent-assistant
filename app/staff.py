@@ -28,8 +28,16 @@ class Update(BaseModel):
 
 def now():return datetime.now(timezone.utc).isoformat()
 
+def _legacy_admin_allowed():
+    """Shared admin key cannot authorize staff operations in production."""
+    import os
+    if os.getenv("SCHOOL_ENV")=="production":
+        raise HTTPException(403,"Legacy shared-key staff API is disabled in production")
+
+
 @router.get("/questions")
 def questions(status:str|None=None,x_admin_key:str|None=Header(None)):
+    _legacy_admin_allowed()
     _auth(x_admin_key)
     if status is not None and status not in ("open","assigned","resolved"):
         raise HTTPException(422,"Invalid status")
@@ -42,6 +50,7 @@ def questions(status:str|None=None,x_admin_key:str|None=Header(None)):
 
 @router.patch("/questions/{question_id}")
 def update(question_id:int,payload:Update,x_admin_key:str|None=Header(None)):
+    _legacy_admin_allowed()
     _auth(x_admin_key)
     assignee=(payload.assigned_to or "").strip()
     resolution=(payload.resolution or "").strip()
@@ -65,6 +74,7 @@ def update(question_id:int,payload:Update,x_admin_key:str|None=Header(None)):
 
 @router.get("/questions/{question_id}/history")
 def history(question_id:int,x_admin_key:str|None=Header(None)):
+    _legacy_admin_allowed()
     _auth(x_admin_key)
     with _db() as c:
         if not c.execute("SELECT id FROM escalations WHERE id=? AND school_id=1",(question_id,)).fetchone():
@@ -99,8 +109,19 @@ def update_my_school_question(question_id:int,payload:Update,authorization:str|N
         resolution=(payload.resolution or "").strip()
         if payload.status=="assigned" and not assignee:raise HTTPException(422,"Assignee required")
         if payload.status=="resolved" and not resolution:raise HTTPException(422,"Resolution required")
-        if user["role"]=="staff" and payload.status=="assigned" and assignee!=user["username"]:
-            raise HTTPException(403,"Staff can only assign questions to themselves")
+        if user["role"]=="staff":
+            if existing["status"]=="assigned":
+                ownership=c.execute("SELECT assigned_to FROM escalations WHERE id=? AND school_id=?",
+                                    (question_id,user["school_id"])).fetchone()
+                if ownership["assigned_to"]!=user["username"]:
+                    raise HTTPException(403,"Question is assigned to another staff member")
+            if payload.status=="assigned" and assignee!=user["username"]:
+                raise HTTPException(403,"Staff can only assign questions to themselves")
+        if assignee and payload.status=="assigned":
+            assignee_row=c.execute("SELECT id FROM staff_accounts WHERE username=? AND school_id=? AND enabled=TRUE",
+                                   (assignee,user["school_id"])).fetchone()
+            if not assignee_row:
+                raise HTTPException(422,"Assignee must be an active staff account in this school")
         c.execute("""UPDATE escalations SET status=?,assigned_to=?,resolution=?,updated_at=?,resolved_at=?
             WHERE id=? AND school_id=?""",(payload.status,assignee or None,resolution or None,now(),
                 now() if payload.status=="resolved" else None,question_id,user["school_id"]))

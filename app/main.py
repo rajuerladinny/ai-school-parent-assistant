@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin
 
 _last_policy_index_date = None
 
@@ -42,14 +42,17 @@ SAMPLE=[
 ("Events","No upcoming events have been published in this demo.","Events calendar"),
 ("Contact","Contact the school office between 9 AM and 4 PM on weekdays.","School handbook")]
 def db():
+    if database_config.backend()=="postgres":
+        from .postgres_adapter import connect
+        return connect(os.environ["SCHOOL_POSTGRES_DSN"])
     c=sqlite3.connect(DB,timeout=10);c.row_factory=sqlite3.Row;c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA busy_timeout=10000');return c
 def records_for_index():
     with db() as c:
         records=[]
-        for r in c.execute("SELECT id,topic,answer,source,school_id FROM knowledge WHERE active=1"):
+        for r in c.execute("SELECT id,topic,answer,source,school_id FROM knowledge WHERE active=TRUE"):
             records.append({"id":"faq-"+str(r["id"]),"school_id":r["school_id"],"topic":r["topic"],"source":r["source"],
                             "text":r["topic"]+"\n"+r["answer"]})
-        for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=1"):
+        for r in c.execute("SELECT id,filename,title,content,school_id FROM documents WHERE active=TRUE"):
             records.append({"id":"doc-"+str(r["id"]),"school_id":r["school_id"],"topic":r["title"],
                             "source":r["filename"],"text":r["content"]})
         records.extend({**r,"school_id":1} for r in policies.active_records(c))
@@ -100,9 +103,14 @@ def setup():
 @app.on_event("startup")
 def startup():
     database_config.validate_configuration()
-    if os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
+    if database_config.backend()=="sqlite" and os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
         raise RuntimeError("SQLite production mode is disabled until PostgreSQL migration is complete")
-    setup()
+    if database_config.backend()=="postgres":
+        from scripts.postgres_bootstrap import validate
+        validate(os.environ["SCHOOL_POSTGRES_DSN"])
+        # PostgreSQL schema is managed externally; never execute SQLite DDL or seed data.
+    else:
+        setup()
     rebuild_index()
 class Item(BaseModel):
     topic:str=Field(min_length=2,max_length=100)
@@ -111,14 +119,18 @@ class Item(BaseModel):
 class Question(BaseModel):
     question:str=Field(min_length=3,max_length=500)
 def auth(key):
+    # The shared bootstrap key has no school identity or RBAC claims.
+    # Reject it for every legacy admin endpoint in production.
+    if os.getenv("SCHOOL_ENV")=="production":
+        raise HTTPException(403,"Legacy shared-key admin API is disabled in production")
     secret=os.getenv("SCHOOL_ADMIN_KEY","")
     if not secret:raise HTTPException(503,"Configure SCHOOL_ADMIN_KEY")
     if not key or not secrets.compare_digest(key,secret):raise HTTPException(401,"Invalid admin key")
-def fallback_search(question):
+def fallback_search(question,school_id=1):
     words=set(re.findall(r"[a-z]{3,}",question.lower()))-{"what","when","where","will","school","please","about","today","tomorrow","there","have","the","for","are","can","you"}
     with db() as c:
         ranked=[]
-        for row in c.execute("SELECT * FROM knowledge WHERE active=1 AND school_id=1"):
+        for row in c.execute("SELECT * FROM knowledge WHERE active=TRUE AND school_id=?",(school_id,)):
             topic=set(re.findall(r"[a-z]{3,}",row["topic"].lower()))
             score=4*len(words&topic)
             if score:ranked.append((score,dict(row)))
@@ -159,7 +171,7 @@ def knowledge(x_admin_key:str|None=Header(None)):
 def add(item:Item,x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:
-        cur=c.execute("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?) RETURNING id",tuple(item.model_dump().values()))
+        cur=c.execute("INSERT INTO knowledge(topic,answer,source,school_id) VALUES(?,?,?,1) RETURNING id",tuple(item.model_dump().values()))
         item_id=cur.fetchone()["id"]
     rebuild_index()
     return {"id":item_id,"vector_index_updated":rag.enabled()}
@@ -209,7 +221,7 @@ async def upload_document(file:UploadFile=File(...),title:str=Form("School docum
     if len(text)>2_000_000:raise HTTPException(413,"Extracted document text is too large")
     clean_title=title.strip()[:150] or filename
     with db() as c:
-        cur=c.execute("INSERT INTO documents(filename,title,content,uploaded_at) VALUES(?,?,?,?) RETURNING id",
+        cur=c.execute("INSERT INTO documents(filename,title,content,uploaded_at,school_id) VALUES(?,?,?,?,1) RETURNING id",
                       (filename,clean_title,text,datetime.now(timezone.utc).isoformat()))
         doc_id=cur.fetchone()["id"]
     indexed=rebuild_index()
@@ -226,11 +238,15 @@ def delete_document(id:int,x_admin_key:str|None=Header(None)):
 def chat(q:Question,authorization:str|None=Header(None)):
     if os.getenv("SCHOOL_ENV")=="production" and not authorization:
         raise HTTPException(401,"Parent login required")
+    school_id=1
+    parent_id=None
     if authorization:
         with db() as c:
-            parent_auth.require_demo_school(parent_auth.parent(c,authorization))
+            principal=parent_auth.parent(c,authorization)
+            school_id=principal["school_id"]
+            parent_id=principal["id"]
     ensure_current_policy_index()
-    results=rag.search(q.question,limit=4)
+    results=rag.search(q.question,limit=4,school_id=school_id)
     # Avoid confident answers when semantic matches are weak.
     relevant=[r for r in results if r.get("distance",1.0)<=float(os.getenv("RAG_MAX_DISTANCE","0.62"))]
     if relevant:
@@ -241,11 +257,10 @@ def chat(q:Question,authorization:str|None=Header(None)):
     # Once semantic search is active, do not override a weak vector match with
     # keyword matching; that could turn an unrelated FAQ into a confident answer.
     if not rag.enabled():
-        fallback=fallback_search(q.question)
+        fallback=fallback_search(q.question,school_id=school_id)
         if fallback:return fallback
     with db() as c:
-        parent_id = parent_auth.parent(c,authorization)["id"] if authorization else None
-        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,1) RETURNING id",(q.question,parent_id))
+        cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,?) RETURNING id",(q.question,parent_id,school_id))
         escalation_id=cur.fetchone()["id"]
     return {"answer":"I don't have verified information for that. Your question has been sent for school staff review.",
             "source":None,"needs_staff":True,"retrieval":"no-confident-match","escalation_id":escalation_id}
@@ -278,3 +293,7 @@ app.include_router(parent_questions.router)
 # School-specific staff login and identity API.
 staff_auth.configure(db,auth)
 app.include_router(staff_auth.router)
+
+# Bearer-authenticated, tenant-scoped administrative replacement API.
+school_admin.configure(db,rebuild_index,extract_text)
+app.include_router(school_admin.router)

@@ -86,7 +86,8 @@ async def upload_policy(policy_key: str = Form(...), title: str = Form(...),
         raise HTTPException(422, "Document must contain 30 to 2,000,000 characters")
     with _db() as c:
         # IMMEDIATE transaction prevents concurrent uploads getting the same version.
-        c.execute("BEGIN IMMEDIATE")
+        if __import__("app.database_config",fromlist=["backend"]).backend()=="sqlite":
+            c.execute("BEGIN IMMEDIATE")
         version = c.execute("SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=1", (policy_key,)).fetchone()[0]
         cur = c.execute("""INSERT INTO policy_versions
             (policy_key,version,title,filename,content,effective_date,created_at,school_id)

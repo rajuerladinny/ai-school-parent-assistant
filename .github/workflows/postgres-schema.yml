@@ -32,3 +32,13 @@ jobs:
       - run: python -m pytest -q tests/test_postgres_bootstrap.py
         env:
           TEST_POSTGRES_URL: postgresql://school_test:school_test_only@localhost:5432/school_test
+
+      - name: PostgreSQL migration and real backup restore drill
+        run: python -m pytest -q tests/test_postgres_migration_restore_integration.py
+        env:
+          TEST_POSTGRES_URL: postgresql://school_test:school_test_only@localhost:5432/school_test
+
+      - name: FastAPI PostgreSQL HTTP integration
+        run: python -m pytest -q tests/test_postgres_fastapi_integration.py
+        env:
+          TEST_POSTGRES_URL: postgresql://school_test:school_test_only@localhost:5432/school_test
