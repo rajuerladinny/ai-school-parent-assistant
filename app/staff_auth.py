@@ -9,6 +9,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime,timedelta,timezone
+from . import shared_login_limit
 from fastapi import APIRouter,Header,HTTPException,Request
 from pydantic import BaseModel,Field
 from .auth import digest
@@ -78,7 +79,8 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
 @router.post("/login")
 def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else "unknown"
-    _limit_login(item.username,ip)
+    if not shared_login_limit.check('staff',item.username,ip):
+        _limit_login(item.username,ip)
     with _db() as c:
         account=c.execute("""SELECT a.* FROM staff_accounts a
             JOIN schools sc ON sc.id=a.school_id
