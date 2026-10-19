@@ -75,3 +75,9 @@ The following are **developer-reported local test results**, not CI or independe
 - Developer-reported full local regression: **119 passed, 2 warnings, 0 failures** (95.48 seconds).
 - PostgreSQL batch execution now rejects unsupported SQLite-only statements before opening a cursor, consistent with single-statement execution.
 - This does not clear the explicit PostgreSQL production runtime gate or constitute CI/staging/security sign-off.
+
+### Final local regression after cursor cleanup — 2026-10-19
+
+- Developer-reported full pytest run: **120 passed, 2 warnings, 0 failures** (111.56 seconds).
+- Includes PostgreSQL batch cursor explicit-close support and its regression test.
+- This is local test evidence only, not GitHub CI or production sign-off. Keep production deployment gates in force.
