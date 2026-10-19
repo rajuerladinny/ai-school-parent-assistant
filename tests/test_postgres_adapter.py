@@ -47,3 +47,34 @@ def test_placeholder_conversion_resumes_after_line_comment():
 def test_placeholder_conversion_ignores_block_comments():
     sql="SELECT /* ignore ? */ id FROM schools WHERE id=?"
     assert placeholders(sql)=="SELECT /* ignore ? */ id FROM schools WHERE id=%s"
+
+
+def test_executemany_returns_open_cursor():
+    class FakeCursor:
+        rowcount=2
+        closed=False
+        def executemany(self,sql,params):
+            assert sql=="INSERT INTO sample(value) VALUES(%s)"
+            assert params==[(1,),(2,)]
+        def close(self):self.closed=True
+    class FakeConnection:
+        def __init__(self):self.cur=FakeCursor()
+        def cursor(self):return self.cur
+    connection=FakeConnection()
+    result=ConnectionAdapter(connection).executemany("INSERT INTO sample(value) VALUES(?)",[(1,),(2,)])
+    assert result.rowcount==2
+    assert not connection.cur.closed
+
+
+def test_executemany_closes_cursor_on_error():
+    class FakeCursor:
+        closed=False
+        def executemany(self,sql,params):raise ValueError("database error")
+        def close(self):self.closed=True
+    class FakeConnection:
+        def __init__(self):self.cur=FakeCursor()
+        def cursor(self):return self.cur
+    connection=FakeConnection()
+    with pytest.raises(ValueError,match="database error"):
+        ConnectionAdapter(connection).executemany("INSERT INTO sample(value) VALUES(?)",[(1,)])
+    assert connection.cur.closed
