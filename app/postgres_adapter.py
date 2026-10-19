@@ -9,22 +9,34 @@ _SQLITE_LAST_ID=re.compile(r"\bINTEGER\s+PRIMARY\s+KEY\b",re.I)
 
 
 def placeholders(sql):
-    """Replace positional ? outside SQL single/double-quoted strings with %s."""
+    """Convert SQLite placeholders without altering SQL strings or comments."""
     out=[]
-    quote=None
+    state="normal"
     i=0
     while i<len(sql):
         char=sql[i]
-        if quote:
+        next_char=sql[i+1] if i+1<len(sql) else ""
+        if state=="normal":
+            if char=="-" and next_char=="-":
+                state="line_comment";out.extend((char,next_char));i+=2;continue
+            if char=="/" and next_char=="*":
+                state="block_comment";out.extend((char,next_char));i+=2;continue
+            if char in ("'",'"'):
+                state=char
+            out.append("%s" if char=="?" else char)
+        elif state in ("'",'"'):
             out.append(char)
-            if char==quote:
-                if i+1<len(sql) and sql[i+1]==quote:
-                    out.append(sql[i+1]);i+=1
-                else:quote=None
-        elif char in ("'",'"'):
-            quote=char;out.append(char)
-        elif char=="?":out.append("%s")
-        else:out.append(char)
+            if char==state:
+                if next_char==state:
+                    out.append(next_char);i+=2;continue
+                state="normal"
+        elif state=="line_comment":
+            out.append(char)
+            if char=="\\n":state="normal"
+        else:
+            out.append(char)
+            if char=="*" and next_char=="/":
+                out.append(next_char);i+=2;state="normal";continue
         i+=1
     return "".join(out)
 
