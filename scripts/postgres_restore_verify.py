@@ -7,7 +7,6 @@ import argparse
 import os
 import subprocess
 import tempfile
-from urllib.parse import urlsplit
 
 def verify(source_dsn, restore_dsn):
     from scripts.postgres_bootstrap import validate
@@ -25,6 +24,8 @@ def verify(source_dsn, restore_dsn):
             "SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname=current_schema()").fetchone()[0]
         if existing:
             raise ValueError("Restore database schema must be empty")
+    # Reject an incomplete or weakened source before creating a backup.
+    validate(source_dsn)
     with tempfile.TemporaryDirectory(prefix="school-pg-restore-") as directory:
         backup=os.path.join(directory,"backup.dump")
         subprocess.run(["pg_dump","--format=custom","--no-owner","--no-acl",
@@ -33,8 +34,10 @@ def verify(source_dsn, restore_dsn):
                         "--dbname",restore_dsn,backup],check=True)
     validate(restore_dsn)
     with psycopg.connect(source_dsn) as source, psycopg.connect(restore_dsn) as restored:
-        tables=("schools","parent_accounts","staff_accounts","knowledge",
-                "documents","policy_versions","parent_notification_reads")
+        tables=("schools","parent_accounts","parent_sessions","staff_accounts",
+                "staff_sessions","knowledge","documents","policy_versions",
+                "escalations","escalation_events","parent_notification_reads",
+                "knowledge_conflicts")
         counts={}
         for table in tables:
             original=source.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
