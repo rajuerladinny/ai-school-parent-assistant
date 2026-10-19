@@ -52,6 +52,12 @@ def test_postgres_schema_against_ephemeral_database():
                 validate(url)
             cur.execute("ALTER TABLE schools ENABLE TRIGGER trg_revoke_school_sessions")
             assert validate(url) is True
+            # Restored trigger must actively revoke newly issued sessions.
+            cur.execute("INSERT INTO parent_sessions(token_hash,parent_id,expires_at) VALUES('pg_parent_token_restored',%s,NOW()+INTERVAL '1 hour')",(parent_id,))
+            cur.execute("UPDATE schools SET active=FALSE WHERE id=%s",(ids[0],))
+            cur.execute("SELECT COUNT(*) FROM parent_sessions WHERE parent_id=%s",(parent_id,))
+            assert cur.fetchone()[0]==0
+            cur.execute("UPDATE schools SET active=TRUE WHERE id=%s",(ids[0],))
             cur.execute("ALTER TABLE parent_notification_reads DISABLE TRIGGER trg_parent_notification_school")
             with pytest.raises(RuntimeError,match="tenant-isolation trigger"):
                 validate(url)
