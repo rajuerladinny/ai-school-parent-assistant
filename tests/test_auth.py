@@ -90,7 +90,9 @@ def test_second_school_cannot_access_shared_parent_content(client):
     assert login.status_code==200
     headers={"Authorization":"Bearer "+login.json()["access_token"]}
     assert client.get("/api/auth/me",headers=headers).json()["school_id"]==2
-    assert client.get("/api/notifications/mine",headers=headers).status_code==403
+    inbox=client.get("/api/notifications/mine",headers=headers)
+    assert inbox.status_code==200
+    assert inbox.json()==[]
     questions=client.get("/api/parent/questions",headers=headers)
     assert questions.status_code==200
     assert all(q["id"]!=0 for q in questions.json())
