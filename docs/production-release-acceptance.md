@@ -68,3 +68,10 @@ The following are **developer-reported local test results**, not CI or independe
 - Production RAG gate: **2 passed**; ChromaDB retrieval is disabled when `SCHOOL_ENV=production`, including when a collection was previously initialized.
 - `pip-audit` of the environment with optional ChromaDB installed: **five known vulnerability findings in ChromaDB 1.5.9**; JSON evidence generated locally as `chromadb-security-audit.json`. The audit did not identify fixed versions in its output. Keep the report private and out of Git. Do not suppress findings or deploy the affected optional stack.
 - This is user-reported local verification, **not GitHub CI evidence** (Actions budget exhausted), staging validation, independent security assessment, or production sign-off. The PR remains draft; do not merge or deploy.
+
+### PostgreSQL adapter hardening verification — 2026-10-19
+
+- Developer-reported local run: **9/9 PostgreSQL adapter tests passed** (0.23 seconds).
+- Developer-reported full local regression: **119 passed, 2 warnings, 0 failures** (95.48 seconds).
+- PostgreSQL batch execution now rejects unsupported SQLite-only statements before opening a cursor, consistent with single-statement execution.
+- This does not clear the explicit PostgreSQL production runtime gate or constitute CI/staging/security sign-off.
