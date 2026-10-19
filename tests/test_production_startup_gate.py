@@ -17,4 +17,4 @@ def test_production_refuses_process_local_login_throttling():
         env=env,capture_output=True,text=True,timeout=20,
     )
     assert result.returncode!=0
-    assert "shared login rate limiter is not implemented" in result.stderr
+    assert "shared Redis login limiter configuration" in result.stderr
