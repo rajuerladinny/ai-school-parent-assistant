@@ -296,6 +296,19 @@ def disable_staff(staff_id: int, authorization: str | None = Header(None)):
         c.execute("DELETE FROM staff_sessions WHERE staff_id=?", (staff_id,))
     return {"disabled":True}
 
+@router.post("/sessions/revoke-school")
+def revoke_school_sessions(authorization: str | None = Header(None)):
+    """Explicitly revoke all parent and staff sessions for the caller's school."""
+    with _db() as c:
+        school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
+        parents = c.execute("DELETE FROM parent_sessions WHERE parent_id IN "
+                            "(SELECT id FROM parent_accounts WHERE school_id=?)",
+                            (school_id,)).rowcount
+        staff = c.execute("DELETE FROM staff_sessions WHERE staff_id IN "
+                          "(SELECT id FROM staff_accounts WHERE school_id=?)",
+                          (school_id,)).rowcount
+    return {"revoked_parent_sessions": parents, "revoked_staff_sessions": staff}
+
 @router.get("/notifications/summary")
 def notification_summary(authorization: str | None = Header(None)):
     with _db() as c:
