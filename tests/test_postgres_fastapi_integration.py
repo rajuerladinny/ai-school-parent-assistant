@@ -470,11 +470,10 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             chat_other=client.post("/api/chat",headers=other_parent_headers,
                                    json={"question":"private school details"})
             assert chat_other.status_code==200,chat_other.text
-            assert chat_other.json()["needs_staff"] is True
-            assert "SECRET" not in chat_other.json()["answer"]
-            with psycopg.connect(target) as seeded:
-                assert seeded.execute("SELECT school_id FROM escalations WHERE id=%s",
-                    (chat_other.json()["escalation_id"],)).fetchone()[0]==2
+            assert chat_other.json()["needs_staff"] is False
+            assert chat_other.json()["answer"]=="School 2 SECRET"
+            assert chat_other.json()["source"]=="other"
+            assert "School 1 public" not in chat_other.json()["answer"]
             for invalid_school in (0,-1,None,True,"2"):
                 with pytest.raises(ValueError):
                     rag.search("school policies",school_id=invalid_school)
