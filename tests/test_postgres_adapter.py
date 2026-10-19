@@ -26,3 +26,14 @@ def test_adapter_executes_postgres_placeholders():
             assert params==(2,)
             return FakeCursor()
     assert ConnectionAdapter(FakeConnection()).execute("SELECT * FROM schools WHERE id=?",(2,)).fetchone()=={"id":2}
+
+def test_cursor_adapter_supports_named_and_positional_fetchmany():
+    from app.postgres_adapter import CursorAdapter
+    class FakeCursor:
+        def fetchmany(self,size):
+            assert size==2
+            return [{"id":7,"name":"A"},{"id":8,"name":"B"}]
+    rows=CursorAdapter(FakeCursor()).fetchmany(2)
+    assert rows[0]["id"]==7
+    assert rows[0][0]==7
+    assert rows[1][1]=="B"
