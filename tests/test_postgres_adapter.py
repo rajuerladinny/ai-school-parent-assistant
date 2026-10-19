@@ -37,3 +37,13 @@ def test_cursor_adapter_supports_named_and_positional_fetchmany():
     assert rows[0]["id"]==7
     assert rows[0][0]==7
     assert rows[1][1]=="B"
+
+
+def test_placeholder_conversion_resumes_after_line_comment():
+    sql="SELECT id FROM schools -- comment with ?\nWHERE id=?"
+    assert placeholders(sql)=="SELECT id FROM schools -- comment with ?\nWHERE id=%s"
+
+
+def test_placeholder_conversion_ignores_block_comments():
+    sql="SELECT /* ignore ? */ id FROM schools WHERE id=?"
+    assert placeholders(sql)=="SELECT /* ignore ? */ id FROM schools WHERE id=%s"
