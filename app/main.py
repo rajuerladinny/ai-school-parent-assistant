@@ -35,9 +35,9 @@ async def response_headers(request:Request,call_next):
     try:
         response=await call_next(request)
     except Exception:
-        observability.record(request.method,500,time.monotonic()-started)
+        observability.record(request.method,500,time.monotonic()-started,correlation_id)
         raise
-    observability.record(request.method,response.status_code,time.monotonic()-started)
+    observability.record(request.method,response.status_code,time.monotonic()-started,correlation_id)
     response.headers["X-Request-ID"]=correlation_id
     response.headers["X-Content-Type-Options"]="nosniff"
     response.headers["Referrer-Policy"]="no-referrer"
