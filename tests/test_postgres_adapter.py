@@ -89,3 +89,19 @@ def test_executemany_rejects_sqlite_only_statements_before_opening_cursor():
         adapter.executemany("INSERT OR IGNORE INTO schools(id) VALUES(?)", [(1,)])
     with pytest.raises(NotImplementedError, match="SQLite-only SQL"):
         adapter.executemany("PRAGMA foreign_keys=ON", [])
+
+
+def test_batch_cursor_can_be_closed_after_use():
+    class FakeCursor:
+        closed=False
+        rowcount=1
+        def executemany(self,sql,params):pass
+        def close(self):self.closed=True
+    class FakeConnection:
+        def __init__(self):self.cursor_obj=FakeCursor()
+        def cursor(self):return self.cursor_obj
+    connection=FakeConnection()
+    cursor=ConnectionAdapter(connection).executemany("INSERT INTO sample(value) VALUES(?)",[(1,)])
+    assert cursor.rowcount==1
+    cursor.close()
+    assert connection.cursor_obj.closed
