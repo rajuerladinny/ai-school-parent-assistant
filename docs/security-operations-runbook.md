@@ -27,3 +27,11 @@ Run encrypted `pg_dump` to a protected location, restore with `pg_restore` into 
 ## Go/no-go
 
 Security owner, operational owner, privacy owner and release owner must sign off independently. Passing CI does not authorize merging or deployment.
+
+## Authentication monitoring and alert evaluation
+
+Structured `auth_rate_limit` events include only a bounded realm (`parent` or `staff`) and outcome (`allowed`, `throttled`, `unavailable`). They contain no account identifier, IP, credentials, or request body.
+
+The `observability.alert_candidates()` helper uses **cumulative counters**, not a rolling time window. It identifies candidate alerts at 10 throttled events per realm or 1 Redis-unavailable event per realm. These thresholds are starting points for tests, **not production alert rules**. Configure the log aggregation platform to evaluate equivalent fleet-wide metrics over a defined 5-minute rolling window, with ownership, notification routing, deduplication, and a tested escalation path. In-memory counters reset on process restart and cannot represent multi-worker totals.
+
+Operational acceptance remains blocked until a real centralized collector, alert delivery, dashboard, and alert drill are demonstrated.
