@@ -61,3 +61,21 @@ def test_plaintext_redis_refused_in_production(monkeypatch):
     with pytest.raises(HTTPException) as error:
         shared_login_limit.check("parent", "alice", "127.0.0.1")
     assert error.value.status_code == 503
+
+def test_redis_outage_fails_closed(monkeypatch):
+    import sys
+    import types
+    monkeypatch.setenv("SCHOOL_ENV", "production")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", "rediss://localhost:6379/0")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "s" * 40)
+    class BrokenRedis:
+        @classmethod
+        def from_url(cls, *args, **kwargs):
+            return cls()
+        def eval(self, *args):
+            raise ConnectionError("redis unavailable")
+    monkeypatch.setitem(sys.modules, "redis", types.SimpleNamespace(Redis=BrokenRedis))
+    with pytest.raises(HTTPException) as error:
+        shared_login_limit.check("parent", "alice", "192.0.2.1")
+    assert error.value.status_code == 503
+    assert "redis" not in str(error.value.detail).lower()
