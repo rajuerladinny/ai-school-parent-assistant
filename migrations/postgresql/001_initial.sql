@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS parent_notification_reads (
 );
 -- Enforce tenant consistency even for writes outside the HTTP API.
 CREATE OR REPLACE FUNCTION enforce_parent_notification_school()
-RETURNS TRIGGER LANGUAGE plpgsql AS $
+RETURNS TRIGGER LANGUAGE plpgsql AS $tenant_receipt_guard$
 BEGIN
  IF NOT EXISTS (
    SELECT 1 FROM parent_accounts a
@@ -95,7 +95,7 @@ BEGIN
  END IF;
  RETURN NEW;
 END;
-$;
+$tenant_receipt_guard$;
 DROP TRIGGER IF EXISTS trg_parent_notification_school ON parent_notification_reads;
 CREATE TRIGGER trg_parent_notification_school
 BEFORE INSERT OR UPDATE OF parent_id,policy_id ON parent_notification_reads
