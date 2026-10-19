@@ -1,4 +1,4 @@
-import os, sqlite3, secrets, re, io
+import os, sqlite3, secrets, re, io, time
 from datetime import datetime, timezone, date
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form, Request
@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin, observability
 
 _last_policy_index_date = None
 
@@ -29,7 +29,15 @@ if os.getenv("SCHOOL_ENV")=="production":
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):
-    response=await call_next(request)
+    started=time.monotonic()
+    correlation_id=observability.request_id()
+    try:
+        response=await call_next(request)
+    except Exception:
+        observability.record(request.method,500,time.monotonic()-started)
+        raise
+    observability.record(request.method,response.status_code,time.monotonic()-started)
+    response.headers["X-Request-ID"]=correlation_id
     response.headers["X-Content-Type-Options"]="nosniff"
     response.headers["Referrer-Policy"]="no-referrer"
     response.headers["X-Frame-Options"]="DENY"
