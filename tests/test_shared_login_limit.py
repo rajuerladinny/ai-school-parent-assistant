@@ -28,7 +28,7 @@ def test_atomic_limits_across_clients(monkeypatch):
     import sys
     import types
     monkeypatch.setenv("SCHOOL_ENV", "production")
-    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", "rediss://localhost:6379/0")
     monkeypatch.setenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "s" * 40)
     counters = {}
     class FakeRedis:
