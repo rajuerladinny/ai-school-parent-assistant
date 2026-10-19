@@ -1,4 +1,4 @@
-import os, sqlite3, secrets, re, io
+import os, sqlite3, secrets, re, io, time
 from datetime import datetime, timezone, date
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form, Request
@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin, observability
 
 _last_policy_index_date = None
 
@@ -20,12 +20,28 @@ if os.getenv("SCHOOL_ENV")=="production":
     if not hosts or "*" in hosts:
         raise RuntimeError("Production requires explicit SCHOOL_ALLOWED_HOSTS")
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=hosts)
-    if os.getenv("SCHOOL_ENFORCE_HTTPS")=="1":
-        app.add_middleware(HTTPSRedirectMiddleware)
+    if os.getenv("SCHOOL_ENFORCE_HTTPS")!="1":
+        raise RuntimeError("Production requires SCHOOL_ENFORCE_HTTPS=1")
+    app.add_middleware(HTTPSRedirectMiddleware)
+    # In-memory login counters are process-local and cannot enforce limits
+    # across production workers. Refuse deployment until a shared limiter exists.
+    redis_url=os.getenv("SCHOOL_RATE_LIMIT_REDIS_URL","")
+    if not redis_url or len(os.getenv("SCHOOL_RATE_LIMIT_KEY_SECRET",""))<32:
+        raise RuntimeError("Production requires shared Redis login limiter configuration")
+    if not redis_url.startswith("rediss://") and not (redis_url.startswith("redis://") and os.getenv("SCHOOL_ALLOW_INSECURE_REDIS")=="1"):
+        raise RuntimeError("Production requires TLS Redis transport unless explicitly overridden")
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):
-    response=await call_next(request)
+    started=time.monotonic()
+    correlation_id=observability.request_id()
+    try:
+        response=await call_next(request)
+    except Exception:
+        observability.record(request.method,500,time.monotonic()-started,correlation_id)
+        raise
+    observability.record(request.method,response.status_code,time.monotonic()-started,correlation_id)
+    response.headers["X-Request-ID"]=correlation_id
     response.headers["X-Content-Type-Options"]="nosniff"
     response.headers["Referrer-Policy"]="no-referrer"
     response.headers["X-Frame-Options"]="DENY"
@@ -97,6 +113,18 @@ def setup():
         c.execute("CREATE INDEX IF NOT EXISTS idx_escalations_school ON escalations(school_id,status)")
         staff.setup(c)
         staff_auth.setup(c)
+        # Invalidate all sessions whenever a school is disabled, including
+        # after the school is later reactivated. SQLite demo trigger only;
+        # PostgreSQL migration must implement an equivalent invariant.
+        c.execute("""CREATE TRIGGER IF NOT EXISTS revoke_school_sessions_on_disable
+            AFTER UPDATE OF active ON schools
+            WHEN OLD.active=TRUE AND NEW.active=FALSE
+            BEGIN
+                DELETE FROM parent_sessions WHERE parent_id IN
+                    (SELECT id FROM parent_accounts WHERE school_id=NEW.id);
+                DELETE FROM staff_sessions WHERE staff_id IN
+                    (SELECT id FROM staff_accounts WHERE school_id=NEW.id);
+            END""")
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)

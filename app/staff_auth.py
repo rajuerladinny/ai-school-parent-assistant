@@ -9,6 +9,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime,timedelta,timezone
+from . import shared_login_limit
 from fastapi import APIRouter,Header,HTTPException,Request
 from pydantic import BaseModel,Field
 from .auth import digest
@@ -58,8 +59,9 @@ class StaffAccount(BaseModel):
     role:str=Field(pattern=r"^(school_admin|staff)$")
 
 class Credentials(BaseModel):
-    username:str
-    password:str
+    # Bound untrusted login payloads before expensive password hashing or Redis calls.
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=128)
 
 @router.post("/accounts",status_code=201)
 def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
@@ -78,9 +80,12 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
 @router.post("/login")
 def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else "unknown"
-    _limit_login(item.username,ip)
+    if not shared_login_limit.check('staff',item.username,ip):
+        _limit_login(item.username,ip)
     with _db() as c:
-        account=c.execute("SELECT * FROM staff_accounts WHERE username=?",(item.username.lower(),)).fetchone()
+        account=c.execute("""SELECT a.* FROM staff_accounts a
+            JOIN schools sc ON sc.id=a.school_id
+            WHERE a.username=? AND sc.active=TRUE""",(item.username.lower(),)).fetchone()
         if not account or not account["enabled"] or not hmac.compare_digest(
                 digest(item.password,account["salt"]),account["password_hash"]):
             raise HTTPException(401,"Invalid credentials")

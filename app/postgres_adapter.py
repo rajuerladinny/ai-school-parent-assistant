@@ -9,22 +9,34 @@ _SQLITE_LAST_ID=re.compile(r"\bINTEGER\s+PRIMARY\s+KEY\b",re.I)
 
 
 def placeholders(sql):
-    """Replace positional ? outside SQL single/double-quoted strings with %s."""
+    """Convert SQLite placeholders without altering SQL strings or comments."""
     out=[]
-    quote=None
+    state="normal"
     i=0
     while i<len(sql):
         char=sql[i]
-        if quote:
+        next_char=sql[i+1] if i+1<len(sql) else ""
+        if state=="normal":
+            if char=="-" and next_char=="-":
+                state="line_comment";out.extend((char,next_char));i+=2;continue
+            if char=="/" and next_char=="*":
+                state="block_comment";out.extend((char,next_char));i+=2;continue
+            if char in ("'",'"'):
+                state=char
+            out.append("%s" if char=="?" else char)
+        elif state in ("'",'"'):
             out.append(char)
-            if char==quote:
-                if i+1<len(sql) and sql[i+1]==quote:
-                    out.append(sql[i+1]);i+=1
-                else:quote=None
-        elif char in ("'",'"'):
-            quote=char;out.append(char)
-        elif char=="?":out.append("%s")
-        else:out.append(char)
+            if char==state:
+                if next_char==state:
+                    out.append(next_char);i+=2;continue
+                state="normal"
+        elif state=="line_comment":
+            out.append(char)
+            if char=="\n":state="normal"
+        else:
+            out.append(char)
+            if char=="*" and next_char=="/":
+                out.append(next_char);i+=2;state="normal";continue
         i+=1
     return "".join(out)
 
@@ -45,6 +57,9 @@ class CursorAdapter:
     def fetchall(self):return [RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor.fetchall()]
     def __iter__(self):
         return (RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor)
+    def fetchmany(self,size=1):
+        return [RowAdapter(row) if isinstance(row,dict) else row for row in self._cursor.fetchmany(size)]
+    def close(self):self._cursor.close()
     @property
     def rowcount(self):return self._cursor.rowcount
     @property
@@ -52,18 +67,27 @@ class CursorAdapter:
         raise NotImplementedError("PostgreSQL inserts must use RETURNING id")
 
 
+def _reject_sqlite_only(sql):
+    statement=sql.lstrip().upper()
+    if statement.startswith("PRAGMA ") or "INSERT OR IGNORE" in statement:
+        raise NotImplementedError("SQLite-only SQL requires PostgreSQL migration")
+
+
 class ConnectionAdapter:
     def __init__(self,connection):self._connection=connection
     def execute(self,sql,params=()):
-        statement=sql.lstrip().upper()
-        if statement.startswith("PRAGMA ") or "INSERT OR IGNORE" in statement:
-            raise NotImplementedError("SQLite-only SQL requires PostgreSQL migration")
+        _reject_sqlite_only(sql)
         cursor=self._connection.execute(placeholders(sql),params)
         return CursorAdapter(cursor)
     def executemany(self,sql,params):
-        with self._connection.cursor() as cur:
+        _reject_sqlite_only(sql)
+        cur=self._connection.cursor()
+        try:
             cur.executemany(placeholders(sql),params)
-            return CursorAdapter(cur)
+        except Exception:
+            cur.close()
+            raise
+        return CursorAdapter(cur)
     def __enter__(self):self._connection.__enter__();return self
     def __exit__(self,*args):return self._connection.__exit__(*args)
     def close(self):self._connection.close()

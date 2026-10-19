@@ -92,6 +92,19 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert staff_login.status_code==200,staff_login.text
             staff_headers={"authorization":"Bearer "+staff_login.json()["access_token"]}
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==200
+            # School deactivation must revoke both token classes permanently.
+            # Exercise this with real PostgreSQL transactions and API reads.
+            with psycopg.connect(target) as revoke_conn:
+                revoke_conn.execute("UPDATE schools SET active=FALSE WHERE id=1")
+                revoke_conn.execute("UPDATE schools SET active=TRUE WHERE id=1")
+            assert client.get("/api/auth/me",headers=parent_headers).status_code==401
+            assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
+            # Re-login is required after reactivation.
+            staff_login=client.post("/api/staff-auth/login",json={
+                "username":"pgstaff","password":"secure-staff-pass-123"})
+            assert staff_login.status_code==200,staff_login.text
+            staff_headers={"authorization":"Bearer "+staff_login.json()["access_token"]}
+            assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==200
             assert client.get("/api/staff/mine/questions",headers=staff_headers).status_code==200
             with psycopg.connect(target) as seeded:
                 seeded.execute("INSERT INTO escalations(school_id,question) VALUES(1,'Where is the bus?')")
@@ -384,6 +397,9 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert other_parent_login.status_code==200,other_parent_login.text
             other_parent_headers={"authorization":"Bearer "+other_parent_login.json()["access_token"]}
             assert client.get("/api/auth/me",headers=other_parent_headers).json()["school_id"]==2
+            # Exercise SQL tenant isolation and escalation, not optional vector
+            # retrieval; a developer's persistent Chroma index must not affect this.
+            monkeypatch.setattr(rag,"search",lambda question,limit=4,school_id=1: [])
             blocked_chat=client.post("/api/chat",headers=other_parent_headers,json={"question":"What are school timings?"})
             assert blocked_chat.status_code==200,blocked_chat.text
             assert blocked_chat.json()["needs_staff"] is True
@@ -460,6 +476,9 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                     class Vectors:
                         def tolist(self):return [[0.1,0.2]]
                     return Vectors()
+            # Restore real retrieval before exercising the mocked vector backend.
+            # Earlier tenant escalation assertions deliberately replace rag.search.
+            monkeypatch.setattr(rag,"search",original_rag_search)
             collection=ScopedCollection()
             monkeypatch.setattr(rag,"_collection",collection)
             monkeypatch.setattr(rag,"_model",ScopedModel())

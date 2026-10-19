@@ -9,6 +9,7 @@ import secrets
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from . import shared_login_limit
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
@@ -60,8 +61,9 @@ class CreateParent(BaseModel):
     password:str=Field(min_length=12,max_length=128)
 
 class Credentials(BaseModel):
-    username:str
-    password:str
+    # Bound untrusted login payloads before expensive password hashing or Redis calls.
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=128)
 
 @router.post("/parents",status_code=201)
 def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
@@ -80,9 +82,12 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
 @router.post("/login")
 def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else 'unknown'
-    _check_login_limit(item.username,ip)
+    if not shared_login_limit.check('parent',item.username,ip):
+        _check_login_limit(item.username,ip)
     with _db() as c:
-        row=c.execute("SELECT * FROM parent_accounts WHERE username=?",(item.username,)).fetchone()
+        row=c.execute("""SELECT a.* FROM parent_accounts a
+            JOIN schools sc ON sc.id=a.school_id
+            WHERE a.username=? AND sc.active=TRUE""",(item.username,)).fetchone()
         # Same generic error for unknown user, wrong password, or disabled account.
         if not row or not row["enabled"] or not hmac.compare_digest(
             digest(item.password,row["salt"]),row["password_hash"]):
@@ -102,7 +107,8 @@ def parent(c,authorization):
     hashed=hashlib.sha256(token.encode()).hexdigest()
     row=c.execute("""SELECT a.id,a.username,a.display_name,a.school_id FROM parent_sessions s
        JOIN parent_accounts a ON a.id=s.parent_id
-       WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE""",
+       JOIN schools sc ON sc.id=a.school_id
+       WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE AND sc.active=TRUE""",
        (hashed,datetime.now(timezone.utc).isoformat())).fetchone()
     if not row:raise HTTPException(401,"Invalid or expired session")
     return row

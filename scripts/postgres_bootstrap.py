@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 
 SCHEMA=Path(__file__).resolve().parents[1]/"migrations"/"postgresql"/"001_initial.sql"
+SESSION_REVOCATION=SCHEMA.parent/"002_revoke_sessions_on_school_disable.sql"
 REQUIRED=("schools","parent_accounts","parent_sessions","knowledge","documents",
           "policy_versions","escalations","escalation_events","parent_notification_reads",
           "knowledge_conflicts","staff_accounts","staff_sessions")
@@ -21,7 +22,8 @@ def validate(dsn):
             missing=set(REQUIRED)-present
             if missing:
                 raise RuntimeError("PostgreSQL schema incomplete: "+", ".join(sorted(missing)))
-            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name='policy_versions'")
+            cursor.execute("""SELECT column_name FROM information_schema.columns
+                WHERE table_schema=current_schema() AND table_name='policy_versions'""")
             columns={r[0] for r in cursor.fetchall()}
             if "school_id" not in columns:
                 raise RuntimeError("Tenant-aware policy schema is required")
@@ -34,6 +36,14 @@ def validate(dsn):
                   AND NOT t.tgisinternal AND t.tgenabled <> 'D'""")
             if cursor.fetchone()[0] != 1:
                 raise RuntimeError("Parent notification tenant-isolation trigger is required")
+            cursor.execute("""SELECT COUNT(*) FROM pg_trigger t
+                JOIN pg_class c ON c.oid=t.tgrelid
+                JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname=current_schema() AND c.relname='schools'
+                  AND t.tgname='trg_revoke_school_sessions'
+                  AND NOT t.tgisinternal AND t.tgenabled <> 'D'""")
+            if cursor.fetchone()[0] != 1:
+                raise RuntimeError("School deactivation session-revocation trigger is required")
     return True
 
 
@@ -45,6 +55,7 @@ def initialize_empty(dsn):
             if cursor.fetchone()[0]:
                 raise RuntimeError("Refusing to initialize a non-empty PostgreSQL schema")
             cursor.execute(SCHEMA.read_text())
+            cursor.execute(SESSION_REVOCATION.read_text())
     return validate(dsn)
 
 

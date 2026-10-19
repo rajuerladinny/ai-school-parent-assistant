@@ -103,3 +103,20 @@ def test_second_school_cannot_access_shared_parent_content(client):
         escalation=db.execute("SELECT school_id FROM escalations WHERE id=?",
                               (chat.json()["escalation_id"],)).fetchone()
         assert escalation["school_id"]==2
+
+
+def test_deactivated_school_revokes_existing_parent_session(client):
+    created=create(client,"inactiveparent")
+    assert created.status_code==201
+    headers=login(client,"inactiveparent")
+    assert client.get("/api/auth/me",headers=headers).status_code==200
+    with main.db() as db:
+        db.execute("UPDATE schools SET active=FALSE WHERE id=1")
+    assert client.get("/api/auth/me",headers=headers).status_code==401
+    assert client.get("/api/notifications/mine",headers=headers).status_code==401
+    assert client.post("/api/auth/login",json={"username":"inactiveparent","password":"secure-demo-password-123"}).status_code==401
+    with main.db() as db:
+        db.execute("UPDATE schools SET active=TRUE WHERE id=1")
+    # Deactivation destroys sessions; reactivation cannot resurrect them.
+    assert client.get("/api/auth/me",headers=headers).status_code==401
+    assert client.get("/api/auth/me",headers=login(client,"inactiveparent")).status_code==200
