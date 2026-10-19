@@ -66,15 +66,20 @@ class CursorAdapter:
         raise NotImplementedError("PostgreSQL inserts must use RETURNING id")
 
 
+def _reject_sqlite_only(sql):
+    statement=sql.lstrip().upper()
+    if statement.startswith("PRAGMA ") or "INSERT OR IGNORE" in statement:
+        raise NotImplementedError("SQLite-only SQL requires PostgreSQL migration")
+
+
 class ConnectionAdapter:
     def __init__(self,connection):self._connection=connection
     def execute(self,sql,params=()):
-        statement=sql.lstrip().upper()
-        if statement.startswith("PRAGMA ") or "INSERT OR IGNORE" in statement:
-            raise NotImplementedError("SQLite-only SQL requires PostgreSQL migration")
+        _reject_sqlite_only(sql)
         cursor=self._connection.execute(placeholders(sql),params)
         return CursorAdapter(cursor)
     def executemany(self,sql,params):
+        _reject_sqlite_only(sql)
         cur=self._connection.cursor()
         try:
             cur.executemany(placeholders(sql),params)
