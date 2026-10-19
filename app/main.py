@@ -20,8 +20,9 @@ if os.getenv("SCHOOL_ENV")=="production":
     if not hosts or "*" in hosts:
         raise RuntimeError("Production requires explicit SCHOOL_ALLOWED_HOSTS")
     app.add_middleware(TrustedHostMiddleware,allowed_hosts=hosts)
-    if os.getenv("SCHOOL_ENFORCE_HTTPS")=="1":
-        app.add_middleware(HTTPSRedirectMiddleware)
+    if os.getenv("SCHOOL_ENFORCE_HTTPS")!="1":
+        raise RuntimeError("Production requires SCHOOL_ENFORCE_HTTPS=1")
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):
