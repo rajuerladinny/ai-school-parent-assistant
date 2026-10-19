@@ -75,9 +75,13 @@ class ConnectionAdapter:
         cursor=self._connection.execute(placeholders(sql),params)
         return CursorAdapter(cursor)
     def executemany(self,sql,params):
-        with self._connection.cursor() as cur:
+        cur=self._connection.cursor()
+        try:
             cur.executemany(placeholders(sql),params)
-            return CursorAdapter(cur)
+        except Exception:
+            cur.close()
+            raise
+        return CursorAdapter(cur)
     def __enter__(self):self._connection.__enter__();return self
     def __exit__(self,*args):return self._connection.__exit__(*args)
     def close(self):self._connection.close()
