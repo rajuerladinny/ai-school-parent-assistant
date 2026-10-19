@@ -18,7 +18,7 @@ def test_production_missing_redis_fails_closed(monkeypatch):
 
 def test_production_missing_secret_fails_closed(monkeypatch):
     monkeypatch.setenv("SCHOOL_ENV", "production")
-    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", "rediss://localhost:6379/0")
     monkeypatch.setenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "short")
     with pytest.raises(HTTPException) as error:
         shared_login_limit.check("staff", "alice", "127.0.0.1")
@@ -52,3 +52,12 @@ def test_atomic_limits_across_clients(monkeypatch):
     with pytest.raises(HTTPException) as error:
         shared_login_limit.check("staff", "user30", "198.51.100.1")
     assert error.value.status_code == 429
+
+def test_plaintext_redis_refused_in_production(monkeypatch):
+    monkeypatch.setenv("SCHOOL_ENV", "production")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "s" * 40)
+    monkeypatch.delenv("SCHOOL_ALLOW_INSECURE_REDIS", raising=False)
+    with pytest.raises(HTTPException) as error:
+        shared_login_limit.check("parent", "alice", "127.0.0.1")
+    assert error.value.status_code == 503
