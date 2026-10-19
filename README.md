@@ -1,5 +1,15 @@
 # AI School Parent Communication Assistant — RAG MVP
 
+> **Status:** Development prototype. Not production-ready. Use fictional school data only. The production security and PostgreSQL acceptance work is in progress; passing local tests alone does not authorize deployment.
+
+**What it does:** Helps parents find answers grounded in approved school FAQs and documents, see policy updates, and escalate unanswered questions to school staff. Administrators manage content and policy review; parent and staff accounts support scoped access in the development implementation.
+
+**Technology:** Python · FastAPI · SQLite (development) · PostgreSQL integration (under validation) · optional ChromaDB / Sentence Transformers · optional Ollama.
+
+**Get involved:** See [CONTRIBUTING.md](CONTRIBUTING.md). Please avoid uploading any real student or parent data. The repository does not yet have an open-source license; one must be chosen before inviting code reuse.
+
+**Suggested GitHub topics:** `edtech`, `school-communication`, `parent-engagement`, `fastapi`, `python`, `rag`, `postgresql`, `education`.
+
 Standalone fictional-school demo for parent questions and school staff. Example school: **Sunrise Valley School**. All facts and names are illustrative.
 
 ## Features
