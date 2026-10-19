@@ -32,8 +32,20 @@ def snapshot() -> dict:
     with _lock:
         return {
             f"{method}:{status_class}": count
-            for (method, status_class), count in sorted(_counts.items())
+            for key, count in sorted(_counts.items())
+            for method, status_class in ([key] if len(key) == 2 else
+                                         [(f"auth:{key[1]}", key[2])])
         }
+
+
+def auth_event(kind: str, outcome: str) -> None:
+    """Emit bounded, identity-free authentication events for centralized log collection."""
+    if kind not in ("parent", "staff") or outcome not in ("allowed", "throttled", "unavailable"):
+        raise ValueError("Invalid authentication metric labels")
+    with _lock:
+        _counts[("auth", kind, outcome)] += 1
+    _logger.info(json.dumps({"event": "auth_rate_limit", "realm": kind,
+                             "outcome": outcome}))
 
 
 def request_id() -> str:
