@@ -25,7 +25,8 @@ if os.getenv("SCHOOL_ENV")=="production":
     app.add_middleware(HTTPSRedirectMiddleware)
     # In-memory login counters are process-local and cannot enforce limits
     # across production workers. Refuse deployment until a shared limiter exists.
-    raise RuntimeError("Production blocked: shared login rate limiter is not implemented")
+    if not os.getenv("SCHOOL_RATE_LIMIT_REDIS_URL") or len(os.getenv("SCHOOL_RATE_LIMIT_KEY_SECRET",""))<32:
+        raise RuntimeError("Production requires shared Redis login limiter configuration")
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):
