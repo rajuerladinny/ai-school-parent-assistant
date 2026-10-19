@@ -25,4 +25,4 @@ The project is **not approved for production use or real student data**. Publish
 
 ## License
 
-No open-source license has been selected yet. Until the owner adds one, standard copyright restrictions apply; do not assume permission to redistribute or modify the project outside applicable law.
+The project uses the Apache License 2.0. See [LICENSE](LICENSE) for the license notice and the linked complete license terms.
