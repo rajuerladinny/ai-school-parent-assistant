@@ -9,6 +9,7 @@ import secrets
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from . import shared_login_limit
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
@@ -80,7 +81,8 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
 @router.post("/login")
 def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else 'unknown'
-    _check_login_limit(item.username,ip)
+    if not shared_login_limit.check('parent',item.username,ip):
+        _check_login_limit(item.username,ip)
     with _db() as c:
         row=c.execute("""SELECT a.* FROM parent_accounts a
             JOIN schools sc ON sc.id=a.school_id
