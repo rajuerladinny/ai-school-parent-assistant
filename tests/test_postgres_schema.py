@@ -31,6 +31,22 @@ def test_postgres_schema_against_ephemeral_database():
                                VALUES(%s,'fees',1,'Fees','fees.txt','Demo policy','2026-01-01')""",(school_id,))
             from scripts.postgres_bootstrap import validate
             assert validate(url) is True
+            # Both parent and staff tokens must be destroyed on school disable,
+            # and must not reappear after the school is reactivated.
+            cur.execute("""INSERT INTO parent_accounts(school_id,username,display_name,salt,password_hash)
+                VALUES(%s,'pg_revoke_parent','Parent','salt','hash') RETURNING id""",(ids[0],))
+            parent_id=cur.fetchone()[0]
+            cur.execute("""INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role)
+                VALUES(%s,'pg_revoke_staff','Staff','salt','hash','staff') RETURNING id""",(ids[0],))
+            staff_id=cur.fetchone()[0]
+            cur.execute("INSERT INTO parent_sessions(token_hash,parent_id,expires_at) VALUES('pg_parent_token',%s,NOW()+INTERVAL '1 hour')",(parent_id,))
+            cur.execute("INSERT INTO staff_sessions(token_hash,staff_id,expires_at) VALUES('pg_staff_token',%s,NOW()+INTERVAL '1 hour')",(staff_id,))
+            cur.execute("UPDATE schools SET active=FALSE WHERE id=%s",(ids[0],))
+            cur.execute("UPDATE schools SET active=TRUE WHERE id=%s",(ids[0],))
+            cur.execute("SELECT COUNT(*) FROM parent_sessions WHERE parent_id=%s",(parent_id,))
+            assert cur.fetchone()[0]==0
+            cur.execute("SELECT COUNT(*) FROM staff_sessions WHERE staff_id=%s",(staff_id,))
+            assert cur.fetchone()[0]==0
             cur.execute("ALTER TABLE parent_notification_reads DISABLE TRIGGER trg_parent_notification_school")
             with pytest.raises(RuntimeError,match="tenant-isolation trigger"):
                 validate(url)
