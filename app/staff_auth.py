@@ -59,8 +59,9 @@ class StaffAccount(BaseModel):
     role:str=Field(pattern=r"^(school_admin|staff)$")
 
 class Credentials(BaseModel):
-    username:str
-    password:str
+    # Bound untrusted login payloads before expensive password hashing or Redis calls.
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=128)
 
 @router.post("/accounts",status_code=201)
 def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
