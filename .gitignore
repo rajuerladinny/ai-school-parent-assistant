@@ -4,3 +4,23 @@ __pycache__/
 .venv/
 .pytest_cache/
 chroma_data/
+
+# Local credentials, databases, uploads, and generated artifacts
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.log
+coverage/
+htmlcov/
+.coverage
+uploads/
+backups/
