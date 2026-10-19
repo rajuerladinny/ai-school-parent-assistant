@@ -48,6 +48,17 @@ def auth_event(kind: str, outcome: str) -> None:
                              "outcome": outcome}))
 
 
+def alert_candidates(counts: dict | None = None) -> list[dict]:
+    """Evaluate local diagnostic counters; external aggregation must supply fleet totals."""
+    counts = snapshot() if counts is None else counts
+    rules = (("auth:parent:throttled", 10),
+             ("auth:staff:throttled", 10),
+             ("auth:parent:unavailable", 1),
+             ("auth:staff:unavailable", 1))
+    return [{"metric": metric, "count": counts.get(metric, 0), "threshold": threshold}
+            for metric, threshold in rules if counts.get(metric, 0) >= threshold]
+
+
 def request_id() -> str:
     # Generated server-side; do not trust a client-provided correlation identifier.
     return uuid4().hex
