@@ -31,3 +31,7 @@ This checklist is a release gate, not evidence that any item has passed. CI pass
 - [ ] Deploy only after all mandatory gates are complete and the release owner authorizes it.
 
 **Pull request policy:** Keep this PR in draft until implementation and evidence satisfy the gates. Merging code is not production approval.
+
+## Database fail-closed regression gate
+
+Automated tests in `tests/test_database_release_gate.py` require rejection of SQLite production mode, invalid PostgreSQL URLs, and a manual `SCHOOL_POSTGRES_RUNTIME_READY=1` override while the runtime adapter is incomplete. A passing schema integration workflow **does not** authorize a production launch. Before removing this gate, demonstrate runtime query compatibility, school isolation, migrations, backup/restore, rollback, and production-like end-to-end tests. Record explicit approval before deployment.
