@@ -23,6 +23,10 @@ if os.getenv("SCHOOL_ENV")=="production":
     if os.getenv("SCHOOL_ENFORCE_HTTPS")!="1":
         raise RuntimeError("Production requires SCHOOL_ENFORCE_HTTPS=1")
     app.add_middleware(HTTPSRedirectMiddleware)
+    # In-memory login counters are process-local and cannot enforce limits
+    # across production workers. Refuse deployment until a shared limiter exists.
+    if os.getenv("SCHOOL_SHARED_LOGIN_LIMITER_READY")!="1":
+        raise RuntimeError("Production requires a verified shared login rate limiter")
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):
