@@ -8,6 +8,7 @@ import hmac
 import os
 from urllib.parse import urlsplit
 from fastapi import HTTPException
+from . import observability
 
 _SCRIPT = """
 local n = redis.call('INCR', KEYS[1])
@@ -40,10 +41,13 @@ def check(kind, username, ip):
                 # bypassing source-IP accounting. The Lua script remains atomic.
                 blocked = max(blocked, int(ttl))
         if blocked:
+            observability.auth_event(kind, "throttled")
             raise HTTPException(429, "Too many login attempts; try again later",
                                 headers={"Retry-After": str(max(1, blocked))})
     except HTTPException:
         raise
     except Exception:
+        observability.auth_event(kind, "unavailable")
         raise HTTPException(503, "Authentication temporarily unavailable")
+    observability.auth_event(kind, "allowed")
     return True
