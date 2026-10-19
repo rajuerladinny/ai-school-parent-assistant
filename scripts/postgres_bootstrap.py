@@ -25,6 +25,15 @@ def validate(dsn):
             columns={r[0] for r in cursor.fetchall()}
             if "school_id" not in columns:
                 raise RuntimeError("Tenant-aware policy schema is required")
+            cursor.execute("""SELECT COUNT(*) FROM pg_trigger t
+                JOIN pg_class c ON c.oid=t.tgrelid
+                JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname=current_schema()
+                  AND c.relname='parent_notification_reads'
+                  AND t.tgname='trg_parent_notification_school'
+                  AND NOT t.tgisinternal AND t.tgenabled <> 'D'""")
+            if cursor.fetchone()[0] != 1:
+                raise RuntimeError("Parent notification tenant-isolation trigger is required")
     return True
 
 
