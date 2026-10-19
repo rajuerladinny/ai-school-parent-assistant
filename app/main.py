@@ -110,6 +110,18 @@ def setup():
         c.execute("CREATE INDEX IF NOT EXISTS idx_escalations_school ON escalations(school_id,status)")
         staff.setup(c)
         staff_auth.setup(c)
+        # Invalidate all sessions whenever a school is disabled, including
+        # after the school is later reactivated. SQLite demo trigger only;
+        # PostgreSQL migration must implement an equivalent invariant.
+        c.execute("""CREATE TRIGGER IF NOT EXISTS revoke_school_sessions_on_disable
+            AFTER UPDATE OF active ON schools
+            WHEN OLD.active=TRUE AND NEW.active=FALSE
+            BEGIN
+                DELETE FROM parent_sessions WHERE parent_id IN
+                    (SELECT id FROM parent_accounts WHERE school_id=NEW.id);
+                DELETE FROM staff_sessions WHERE staff_id IN
+                    (SELECT id FROM staff_accounts WHERE school_id=NEW.id);
+            END""")
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
