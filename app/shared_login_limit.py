@@ -6,6 +6,7 @@ The Redis INCR/EXPIRE operation is atomic via Lua across workers.
 import hashlib
 import hmac
 import os
+from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 _SCRIPT = """
@@ -20,6 +21,9 @@ def check(kind, username, ip):
     url = os.getenv("SCHOOL_RATE_LIMIT_REDIS_URL")
     secret = os.getenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "")
     if not url or len(secret) < 32 or not url.startswith(("rediss://", "redis://")):
+        raise HTTPException(503, "Authentication temporarily unavailable")
+    parsed = urlsplit(url)
+    if not parsed.hostname or parsed.fragment:
         raise HTTPException(503, "Authentication temporarily unavailable")
     if url.startswith("redis://") and os.getenv("SCHOOL_ALLOW_INSECURE_REDIS") != "1":
         raise HTTPException(503, "Authentication temporarily unavailable")
