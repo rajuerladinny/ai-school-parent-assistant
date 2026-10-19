@@ -22,7 +22,8 @@ def validate(dsn):
             missing=set(REQUIRED)-present
             if missing:
                 raise RuntimeError("PostgreSQL schema incomplete: "+", ".join(sorted(missing)))
-            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name='policy_versions'")
+            cursor.execute("""SELECT column_name FROM information_schema.columns
+                WHERE table_schema=current_schema() AND table_name='policy_versions'""")
             columns={r[0] for r in cursor.fetchall()}
             if "school_id" not in columns:
                 raise RuntimeError("Tenant-aware policy schema is required")
