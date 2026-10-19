@@ -58,5 +58,13 @@ The following are **developer-reported local test results**, not CI or independe
 - **Identity:** Managed identity provider, administrator MFA, password recovery, privileged authorization review, and end-to-end tenant isolation still require implementation and acceptance.
 - **Ingress and Redis:** Trusted-proxy/IP handling, production HTTPS/TLS termination, Redis TLS/authentication and multi-worker throttling still need staging evidence.
 - **Operations:** Centralized logs, rolling-window fleet metrics, tested alerts/on-call, privacy review, encrypted backup retention and RPO/RTO remain unverified.
-- **Repository:** Branch protection enforcement, GitHub secret-scanning alerts, optional RAG audit, ChromaDB integration, and full Apache-2.0 license text remain outstanding.
+- **Repository:** Branch protection enforcement, GitHub secret-scanning alerts, remediation of five reported ChromaDB 1.5.9 vulnerability findings, and full Apache-2.0 license text remain outstanding. Production RAG is now disabled as temporary containment; this does not remediate vulnerable installed packages.
 - **Release:** No deployment, PR merge, or production approval is implied by local test success.
+
+## Additional developer-reported verification — 2026-10-19
+
+- **118 passed, 2 warnings, 0 failures** in the full local pytest suite (89.28 seconds), with optional RAG dependencies installed. No skipped tests reported.
+- Targeted PostgreSQL/FastAPI integration test: **1 passed, 2 warnings** (71.12 seconds). Test isolation was corrected to restore the real vector search function before mocked tenant-scoped retrieval assertions.
+- Production RAG gate: **2 passed**; ChromaDB retrieval is disabled when `SCHOOL_ENV=production`, including when a collection was previously initialized.
+- `pip-audit` of the environment with optional ChromaDB installed: **five known vulnerability findings in ChromaDB 1.5.9**; JSON evidence generated locally as `chromadb-security-audit.json`. The audit did not identify fixed versions in its output. Keep the report private and out of Git. Do not suppress findings or deploy the affected optional stack.
+- This is user-reported local verification, **not GitHub CI evidence** (Actions budget exhausted), staging validation, independent security assessment, or production sign-off. The PR remains draft; do not merge or deploy.
