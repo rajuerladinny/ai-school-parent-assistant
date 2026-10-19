@@ -23,6 +23,7 @@ def test_postgres_schema_against_ephemeral_database():
     with psycopg.connect(url,autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.execute(SCHEMA.read_text())
+            cur.execute((SCHEMA.parent/"002_revoke_sessions_on_school_disable.sql").read_text())
             cur.execute("INSERT INTO schools(slug,name) VALUES('school-a','School A'),('school-b','School B') RETURNING id")
             ids=[r[0] for r in cur.fetchall()]
             for school_id in ids:
