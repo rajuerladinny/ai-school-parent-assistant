@@ -17,14 +17,15 @@ _counts = Counter()
 _logger = logging.getLogger('school.operations')
 
 
-def record(method: str, status: int, elapsed_seconds: float) -> None:
+def record(method: str, status: int, elapsed_seconds: float, correlation_id: str | None = None) -> None:
     # Never collect URLs, query strings, user identifiers, authorization headers or bodies.
     status_class = f"{status // 100}xx"
     with _lock:
         _counts[(method, status_class)] += 1
     _logger.info(json.dumps({"event": "http_request", "method": method,
                              "status_class": status_class,
-                             "latency_ms": round(max(0, elapsed_seconds) * 1000, 1)}))
+                             "latency_ms": round(max(0, elapsed_seconds) * 1000, 1),
+                             "request_id": correlation_id}))
 
 
 def snapshot() -> dict:
