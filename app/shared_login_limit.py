@@ -24,13 +24,18 @@ def check(kind, username, ip):
     try:
         import redis
         client = redis.Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+        blocked = 0
         for scope, identity, limit in (("account", username.strip().casefold(), 5),
                                        ("ip", ip, 30)):
             digest = hmac.new(secret.encode(), f"{kind}:{scope}:{identity}".encode(), hashlib.sha256).hexdigest()
             count, ttl = client.eval(_SCRIPT, 1, "school:login:"+digest, 300)
             if int(count) > limit:
-                raise HTTPException(429, "Too many login attempts; try again later",
-                                    headers={"Retry-After": str(max(1, int(ttl)))})
+                # Keep evaluating both dimensions to prevent a blocked account from
+                # bypassing source-IP accounting. The Lua script remains atomic.
+                blocked = max(blocked, int(ttl))
+        if blocked:
+            raise HTTPException(429, "Too many login attempts; try again later",
+                                headers={"Retry-After": str(max(1, blocked))})
     except HTTPException:
         raise
     except Exception:
