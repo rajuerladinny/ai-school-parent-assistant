@@ -102,7 +102,8 @@ def parent(c,authorization):
     hashed=hashlib.sha256(token.encode()).hexdigest()
     row=c.execute("""SELECT a.id,a.username,a.display_name,a.school_id FROM parent_sessions s
        JOIN parent_accounts a ON a.id=s.parent_id
-       WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE""",
+       JOIN schools sc ON sc.id=a.school_id
+       WHERE s.token_hash=? AND s.expires_at>? AND a.enabled=TRUE AND sc.active=TRUE""",
        (hashed,datetime.now(timezone.utc).isoformat())).fetchone()
     if not row:raise HTTPException(401,"Invalid or expired session")
     return row
