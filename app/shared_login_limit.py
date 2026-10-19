@@ -26,7 +26,7 @@ def check(kind, username, ip):
     parsed = urlsplit(url)
     if not parsed.hostname or parsed.fragment:
         raise HTTPException(503, "Authentication temporarily unavailable")
-    if url.startswith("redis://") and os.getenv("SCHOOL_ALLOW_INSECURE_REDIS") != "1":
+    if url.startswith("redis://") and (os.getenv("SCHOOL_ENV") == "production" or os.getenv("SCHOOL_ALLOW_INSECURE_REDIS") != "1"):
         raise HTTPException(503, "Authentication temporarily unavailable")
     try:
         import redis
