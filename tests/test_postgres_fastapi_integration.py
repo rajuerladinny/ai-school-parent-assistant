@@ -401,6 +401,13 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                                headers=other_parent_headers).status_code==200
             other_inbox=client.get("/api/notifications/mine",headers=other_parent_headers)
             assert any(p["policy_id"]==policy_two_id and p["is_read"] for p in other_inbox.json())
+            # Direct database writes must obey tenant boundaries as well.
+            with psycopg.connect(target) as seeded:
+                with pytest.raises(psycopg.errors.CheckViolation):
+                    with seeded.transaction():
+                        seeded.execute("INSERT INTO parent_notification_reads(parent_id,policy_id) "
+                                       "VALUES(%s,%s)",(receipt_parent_id,policy_id))
+
             parent_relogin=client.post("/api/auth/login",json={
                 "username":"pgparent","password":"secure-parent-pass-123"})
             assert parent_relogin.status_code==200,parent_relogin.text
