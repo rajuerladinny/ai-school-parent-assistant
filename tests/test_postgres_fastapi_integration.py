@@ -476,6 +476,9 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
                     class Vectors:
                         def tolist(self):return [[0.1,0.2]]
                     return Vectors()
+            # Restore real retrieval before exercising the mocked vector backend.
+            # Earlier tenant escalation assertions deliberately replace rag.search.
+            monkeypatch.setattr(rag,"search",original_rag_search)
             collection=ScopedCollection()
             monkeypatch.setattr(rag,"_collection",collection)
             monkeypatch.setattr(rag,"_model",ScopedModel())
