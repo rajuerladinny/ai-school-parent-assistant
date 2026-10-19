@@ -32,7 +32,7 @@ def placeholders(sql):
                 state="normal"
         elif state=="line_comment":
             out.append(char)
-            if char=="\\n":state="normal"
+            if char=="\n":state="normal"
         else:
             out.append(char)
             if char=="*" and next_char=="/":
