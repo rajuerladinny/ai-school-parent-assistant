@@ -114,6 +114,7 @@ def test_deactivated_school_revokes_existing_parent_session(client):
         db.execute("UPDATE schools SET active=FALSE WHERE id=1")
     assert client.get("/api/auth/me",headers=headers).status_code==401
     assert client.get("/api/notifications/mine",headers=headers).status_code==401
+    assert client.post("/api/auth/login",json={"username":"inactiveparent","password":"secure-demo-password-123"}).status_code==401
     with main.db() as db:
         db.execute("UPDATE schools SET active=TRUE WHERE id=1")
     assert client.get("/api/auth/me",headers=headers).status_code==200
