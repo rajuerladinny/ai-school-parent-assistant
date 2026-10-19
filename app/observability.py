@@ -2,6 +2,8 @@
 
 Counters are process-local diagnostics, not a replacement for centralized monitoring.
 """
+import json
+import logging
 import threading
 import time
 from collections import Counter
@@ -12,6 +14,7 @@ from fastapi import APIRouter, Request
 router = APIRouter()
 _lock = threading.Lock()
 _counts = Counter()
+_logger = logging.getLogger('school.operations')
 
 
 def record(method: str, status: int, elapsed_seconds: float) -> None:
@@ -19,6 +22,9 @@ def record(method: str, status: int, elapsed_seconds: float) -> None:
     status_class = f"{status // 100}xx"
     with _lock:
         _counts[(method, status_class)] += 1
+    _logger.info(json.dumps({"event": "http_request", "method": method,
+                             "status_class": status_class,
+                             "latency_ms": round(max(0, elapsed_seconds) * 1000, 1)}))
 
 
 def snapshot() -> dict:
