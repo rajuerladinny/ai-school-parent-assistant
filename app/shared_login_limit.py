@@ -19,7 +19,7 @@ def check(kind, username, ip):
         return False
     url = os.getenv("SCHOOL_RATE_LIMIT_REDIS_URL")
     secret = os.getenv("SCHOOL_RATE_LIMIT_KEY_SECRET", "")
-    if not url or len(secret) < 32:
+    if not url or len(secret) < 32 or not url.startswith(("rediss://", "redis://")):
         raise HTTPException(503, "Authentication temporarily unavailable")
     try:
         import redis
