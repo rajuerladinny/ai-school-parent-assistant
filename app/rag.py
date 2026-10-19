@@ -30,6 +30,11 @@ def chunk_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[str
 
 def _load():
     global _model, _client, _collection
+    # The optional ChromaDB dependency has unresolved security advisories.
+    # Do not initialize or use vector retrieval in production, even if it was
+    # already initialized in a development process before an environment change.
+    if os.getenv("SCHOOL_ENV", "").lower() == "production":
+        return False
     if _collection is not None:
         return True
     try:
