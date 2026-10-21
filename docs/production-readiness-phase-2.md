@@ -1,9 +1,9 @@
-# Production readiness � consolidated draft PR #30
+# Production readiness - consolidated draft PR #30
 
 Release status: BLOCKED. Merging this PR does not authorize deployment.
 
 This draft collects the remaining work in one PR, with separate commits for review.
-PRs #31�#36 are already merged into main; their database, authentication,
+PRs #31 through #36 are already merged into main; their database, authentication,
 policy concurrency, restore integrity and tenant indexing fixes are prerequisites.
 
 ## Acceptance checklist
@@ -33,3 +33,25 @@ policy concurrency, restore integrity and tenant indexing fixes are prerequisite
 - Reject the insecure Redis override consistently at production startup and login.
 - Exercise a real PostgreSQL connection termination, uncommitted-write rollback,
   and successful fresh-connection write/read, using the disposable test fixture.
+
+## Provider-neutral identity contract
+
+The selected provider must supply a verified issuer and audience, an immutable
+subject identifier, and a documented admin MFA assurance claim. Account linking
+must use an explicit reviewed mapping to the existing school-scoped account;
+email or a caller-supplied school ID alone must never grant membership.
+Application authorization remains server-side and scoped to school and role.
+
+Before enabling an integration, test invalid signatures, wrong issuer/audience,
+expired tokens, key rotation, missing MFA, disabled memberships, session
+revocation, recovery and cross-school access. Provider configuration, callbacks,
+secrets and logout/revocation behavior will be implemented after selection.
+No new identity-provider tokens are accepted by the current application.
+
+## Local verification for this batch
+
+At implementation commit 595db964d648b30676dd0ec2d20bfb56a09be3cb,
+`python -m pytest -q -o faulthandler_timeout=90` passed 173 tests with
+2 existing FastAPI startup-event deprecation warnings. Environment: Windows,
+Python 3.13, disposable PostgreSQL 16 cluster, offline local vector dependencies.
+This is local acceptance evidence, not a staging or deployment sign-off.
