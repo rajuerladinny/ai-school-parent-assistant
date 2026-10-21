@@ -9,6 +9,72 @@ from urllib.parse import urlsplit,urlunsplit
 import pytest
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+@pytest.mark.parametrize("path,table", [
+    ("/api/auth/parents", "parent_accounts"),
+    ("/api/staff-auth/accounts", "staff_accounts"),
+    ("/api/school-admin/parents", "parent_accounts"),
+    ("/api/school-admin/staff", "staff_accounts"),
+])
+def test_account_creation_duplicate_username(backend, path, table, request, tmp_path, monkeypatch):
+    """Duplicate account requests return 409 and leave the original account intact."""
+    from fastapi.testclient import TestClient
+    from app import main, auth, database_config
+
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", backend)
+    monkeypatch.setenv("SCHOOL_ADMIN_KEY", "account-conflict-test-key")
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    if backend == "postgres":
+        target = request.getfixturevalue("postgres_database")
+        monkeypatch.setenv("SCHOOL_POSTGRES_DSN", target)
+        # This test validates compatibility without opening the production gate.
+        monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+        with main.db() as connection:
+            connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'conflict-test','Test School')")
+    else:
+        monkeypatch.setattr(main, "DB", str(tmp_path / "accounts.db"))
+        main.setup()
+
+    salt = "ab" * 16
+    with main.db() as connection:
+        connection.execute(
+            "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+            "VALUES(1,?,?,?,?,?)",
+            ("conflictadmin", "Test Administrator", salt,
+             auth.digest("administrator-test-password", salt), "school_admin"))
+
+    with TestClient(main.app) as client:
+        login = client.post("/api/staff-auth/login", json={
+            "username": "conflictadmin", "password": "administrator-test-password"})
+        assert login.status_code == 200, login.text
+        headers = ({"Authorization": "Bearer " + login.json()["access_token"]}
+                   if path.startswith("/api/school-admin/")
+                   else {"X-Admin-Key": "account-conflict-test-key"})
+        payload = {"username": "conflictuser", "display_name": "Original Account",
+                   "password": "original-account-password"}
+        if table == "staff_accounts":
+            payload["role"] = "staff"
+        created = client.post(path, headers=headers, json=payload)
+        assert created.status_code == 201, created.text
+        duplicate = client.post(path, headers=headers, json={
+            **payload, "username": "CONFLICTUSER", "display_name": "Replacement Account",
+            "password": "replacement-account-password"})
+        assert duplicate.status_code == 409, duplicate.text
+        assert duplicate.json()["detail"] == "Username already exists"
+        with main.db() as connection:
+            rows = connection.execute(
+                f"SELECT id,display_name,salt,password_hash FROM {table} WHERE username=?",
+                ("conflictuser",)).fetchall()
+            assert len(rows) == 1
+            assert rows[0]["id"] == created.json()["id"]
+            assert rows[0]["display_name"] == "Original Account"
+            assert rows[0]["password_hash"] == auth.digest(payload["password"], rows[0]["salt"])
+        # A failed duplicate request must not poison subsequent transactions.
+        following = client.post(path, headers=headers, json={**payload, "username": "followinguser"})
+        assert following.status_code == 201, following.text
+
+
 def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
     dsn=os.getenv("TEST_POSTGRES_URL")
     if not dsn:pytest.skip("Requires TEST_POSTGRES_URL")

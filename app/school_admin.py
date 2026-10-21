@@ -7,7 +7,6 @@ from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from . import staff_auth, conflicts, policies, auth
 import secrets
-import sqlite3
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -237,15 +236,15 @@ def create_parent(item: NewParent, authorization: str | None = Header(None)):
     salt = secrets.token_hex(16)
     with _db() as c:
         school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
-        try:
-            cur = c.execute(
-                "INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) "
-                "VALUES(?,?,?,?,?) RETURNING id",
-                (item.username.lower(),item.display_name.strip(),salt,
-                 auth.digest(item.password,salt),school_id))
-        except sqlite3.IntegrityError:
+        cur = c.execute(
+            "INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) "
+            "VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id",
+            (item.username.lower(),item.display_name.strip(),salt,
+             auth.digest(item.password,salt),school_id))
+        row = cur.fetchone()
+        if row is None:
             raise HTTPException(409, "Username already exists")
-        parent_id = cur.fetchone()["id"]
+        parent_id = row["id"]
     return {"id":parent_id,"username":item.username.lower(),"role":"parent"}
 
 @router.post("/parents/{parent_id}/disable")
@@ -272,15 +271,15 @@ def create_staff(item: NewStaff, authorization: str | None = Header(None)):
     salt = secrets.token_hex(16)
     with _db() as c:
         school_id = staff_auth.principal(c, authorization, roles=("school_admin",))["school_id"]
-        try:
-            cur = c.execute(
-                "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
-                "VALUES(?,?,?,?,?,?) RETURNING id",
-                (school_id,item.username.lower(),item.display_name.strip(),salt,
-                 auth.digest(item.password,salt),item.role))
-        except sqlite3.IntegrityError:
+        cur = c.execute(
+            "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id",
+            (school_id,item.username.lower(),item.display_name.strip(),salt,
+             auth.digest(item.password,salt),item.role))
+        row = cur.fetchone()
+        if row is None:
             raise HTTPException(409, "Username already exists")
-        staff_id = cur.fetchone()["id"]
+        staff_id = row["id"]
     return {"id":staff_id,"school_id":school_id,"role":item.role}
 
 @router.post("/staff/{staff_id}/disable")

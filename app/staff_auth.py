@@ -5,7 +5,6 @@ Legacy shared-key staff endpoints remain demo-only and must be retired before pr
 import hashlib
 import hmac
 import secrets
-import sqlite3
 import threading
 import time
 from datetime import datetime,timedelta,timezone
@@ -70,12 +69,12 @@ def create_account(item:StaffAccount,x_admin_key:str|None=Header(None)):
     with _db() as c:
         if not c.execute("SELECT 1 FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone():
             raise HTTPException(404,"School not found")
-        try:
-            cur=c.execute("""INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role)
-                VALUES(?,?,?,?,?,?) RETURNING id""",(item.school_id,item.username.lower(),item.display_name,salt,digest(item.password,salt),item.role))
-        except sqlite3.IntegrityError:
+        cur=c.execute("""INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role)
+            VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id""",(item.school_id,item.username.lower(),item.display_name,salt,digest(item.password,salt),item.role))
+        row=cur.fetchone()
+        if row is None:
             raise HTTPException(409,"Username already exists")
-        return {"id":cur.fetchone()["id"],"school_id":item.school_id,"role":item.role}
+        return {"id":row["id"],"school_id":item.school_id,"role":item.role}
 
 @router.post("/login")
 def login(item:Credentials,request:Request):
