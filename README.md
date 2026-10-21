@@ -37,6 +37,8 @@ Open http://127.0.0.1:8000. The chat works with sample FAQs. The admin dashboard
 
 ## Enable local RAG vector search
 
+Index rebuilds include active FAQs/documents and the current approved, effective policy versions from every active school. Each record retains its school ID; vector retrieval filters by that school and checks returned metadata again. Rejected, draft, future and disabled-school policies are excluded, and rebuilding removes content that is no longer eligible. Chunk identity includes the school and displayed source metadata, so identical source IDs across schools do not collide and metadata changes invalidate the cache. Offline tests exercise actual temporary Chroma collections and parent chat with deterministic embeddings; they do not establish real-model answer quality. Production vector retrieval remains disabled.
+
 Install the optional dependencies:
 
 ```bash
@@ -58,6 +60,14 @@ OLLAMA_MODEL=llama3.2:3b
 
 If Ollama is not configured or fails, the app transparently returns retrieved excerpts instead of pretending a language model answered. This keeps the MVP usable without OpenAI API keys or hosted model charges. Local models still require disk space, memory and CPU/GPU resources.
 
+## School-aware parent login
+
+The parent login form asks for the school code provided by the school (`demo` for the fictional demo school). Codes match the school's registry slug exactly. The API accepts `school_code` alongside `username` and `password` in `POST /api/auth/login` and authenticates only within that school. Parent usernames are normalized to lowercase, consistent with account creation.
+
+Existing API callers may omit `school_code` only when the username identifies exactly one account across all schools. Duplicate usernames return the same generic HTTP 401 as unknown, disabled, or incorrect credentials; the server never chooses an account by row order or by trying the password against multiple schools. Disabled accounts and schools still count when detecting ambiguity. Existing username/IP throttles also apply across school codes.
+
+This change does not enable production or change SQLite's existing globally unique parent usernames. PostgreSQL permits tenant-scoped parent usernames; its cross-school login behavior is covered by integration tests.
+
 ## Verify
 
 ```bash
@@ -67,6 +77,8 @@ python -m pytest -q
 `GET /api/health` reports whether vector search dependencies are available. The CI job installs the lightweight base requirements, so it tests upload, permissions, fallback behavior and endpoints without downloading the embedding model.
 
 ## Policy management (versioned approvals)
+
+Policy uploads allocate the next version and insert the draft in one transaction. Both the legacy demo and school-admin upload APIs use the same allocator. SQLite takes an immediate write transaction; PostgreSQL locks the school's registry row until commit or rollback, including for the first version. Uploads within a school serialize briefly during allocation; different schools use different row locks. Failed transactions release the lock and do not consume a policy version. This does not enable production operation.
 
 The admin dashboard now includes **Policy versions**. Upload a policy PDF/DOCX/TXT/MD with a stable key (for example `fee-policy`), a title, and a YYYY-MM-DD effective date. Every upload creates a new **draft** version. An administrator must approve or reject it; rejected versions stay in the history but are not searchable. Approved future versions become applicable on their effective date; the system rechecks the date when parents ask questions and rebuilds the vector index when the day changes. The latest *effective, approved* version of each policy key is indexed. Version history is retained in SQLite.
 
@@ -154,7 +166,9 @@ FAQ, uploaded documents and policy versions now carry `school_id`, existing reco
 
 ## Experimental SQLite to PostgreSQL transfer utility
 
-`scripts/migrate_sqlite_to_postgres.py` can copy a limited set of foundational tables from a **quiesced**, backed-up SQLite database to an **empty** PostgreSQL schema. It defaults to a rollback-only dry run; `--apply` commits after count checks. This utility is **not a complete migration**: it does not yet transfer staff workflows, all session/token state, conflict history or vector embeddings, nor does it change the application's SQLite runtime. Do not use with real school data until all tables and foreign keys are covered, end-to-end checks pass, and an approved backup/rollback procedure is tested. ChromaDB is a separate index and must be rebuilt from approved, tenant-scoped source records after a migration.
+`scripts/migrate_sqlite_to_postgres.py` copies the 12 application tables listed in `TABLES`, including staff workflows, sessions, receipts and conflict history, from a **quiesced**, backed-up SQLite database into an **empty** initialized PostgreSQL schema. It defaults to a rollback-only dry run; `--apply` commits only after row counts, every copied column and relationship checks pass. The source is opened read-only with a consistent snapshot, including filenames containing URI-special characters. Boolean flags must be 0 or 1; timezone-aware timestamps preserve their instant, and naive SQLite timestamps are interpreted as UTC. Identity sequence resets are transactional, so dry runs and failures leave no sequence changes.
+
+The migration takes exclusive locks on the target application tables and requires ownership of their identity sequences. Populated unsupported tables (including retired anonymous notification records) and unexpected source columns require an explicit archive or migration decision; they are never silently discarded. Failed transfers roll back and can be retried against the empty target. This does not switch the API runtime or authorize real-school migration. ChromaDB remains a separate index and must be rebuilt from approved, tenant-scoped records.
 
 
 ## Staff identity milestone (not production authentication)
@@ -164,7 +178,7 @@ Individual school-linked `school_admin` and `staff` accounts can be provisioned 
 
 ## Backup and restore verification foundation
 
-`scripts/verify_postgres_restore.py` runs `pg_dump`, restores into a **separate empty disposable PostgreSQL database**, and compares row counts for core tables. Requires PostgreSQL client tools and `psycopg`. The script refuses identical source/restore DSN strings. **Do not pass two different DSN strings that refer to the same database.** This is a utility, not evidence of a completed recovery drill: the restore has not yet been run against the actual application's full schema and data. Production recovery also needs encrypted offsite storage, tested point-in-time recovery, retention, restore-time objectives, RAG/Chroma reindexing, and documented access controls.
+Both `scripts/verify_postgres_restore.py` and `scripts/postgres_restore_verify.py` run the same `pg_dump`/`pg_restore` drill into a **separate empty disposable PostgreSQL database**, validate required schema/security triggers, and compare every application column, row count and identity sequence state. The restore runs in one transaction. Both tools reject connections that resolve to the same database or a populated target schema. Keep the source quiesced during the dump and comparison. Requires PostgreSQL client tools and `psycopg`. Fictional-data integration tests populate all 12 migrated tables and detect content or sequence changes even when counts match. Production recovery still needs encrypted offsite storage, point-in-time recovery, retention, restore-time objectives, RAG reindexing and operational approval.
 
 
 ## PostgreSQL runtime adapter — incremental milestone

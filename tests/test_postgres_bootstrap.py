@@ -1,6 +1,5 @@
 """Validate PostgreSQL schema bootstrap against CI's ephemeral database."""
 import importlib.util
-import os
 from pathlib import Path
 import pytest
 
@@ -20,9 +19,8 @@ def test_schema_declares_all_required_tables():
         assert f"CREATE TABLE IF NOT EXISTS {table} " in sql or f"CREATE TABLE IF NOT EXISTS {table} (" in sql
 
 
-def test_bootstrap_against_postgres():
-    dsn=os.getenv("TEST_POSTGRES_URL")
-    if not dsn:pytest.skip("TEST_POSTGRES_URL not set")
+def test_bootstrap_against_postgres(postgres_database):
+    dsn=postgres_database
     m=module()
     assert m.validate(dsn)
     with pytest.raises(RuntimeError,match="non-empty"):

@@ -3,14 +3,11 @@
 These tests intentionally do not enable the FastAPI PostgreSQL runtime: app setup
 and several feature queries still require conversion.
 """
-import os
 import pytest
 
 
-def test_postgres_adapter_insert_read_rollback():
-    dsn=os.getenv("TEST_POSTGRES_URL")
-    if not dsn:
-        pytest.skip("Requires isolated TEST_POSTGRES_URL")
+def test_postgres_adapter_insert_read_rollback(postgres_database):
+    dsn=postgres_database
     from app.postgres_adapter import connect
     from scripts.postgres_bootstrap import validate
     assert validate(dsn)
@@ -27,10 +24,8 @@ def test_postgres_adapter_insert_read_rollback():
                          ("adapter-rollback-check",)).fetchone()["count"]==0
 
 
-def test_postgres_adapter_rejects_sqlite_only_sql():
-    dsn=os.getenv("TEST_POSTGRES_URL")
-    if not dsn:
-        pytest.skip("Requires isolated TEST_POSTGRES_URL")
+def test_postgres_adapter_rejects_sqlite_only_sql(postgres_database):
+    dsn=postgres_database
     from app.postgres_adapter import connect
     with connect(dsn) as c:
         with pytest.raises(NotImplementedError):
@@ -39,10 +34,8 @@ def test_postgres_adapter_rejects_sqlite_only_sql():
             c.execute("INSERT OR IGNORE INTO schools(slug,name) VALUES(?,?)",("x","y"))
 
 
-def test_postgres_adapter_explicit_commit_and_rollback():
-    dsn=os.getenv("TEST_POSTGRES_URL")
-    if not dsn:
-        pytest.skip("Requires isolated TEST_POSTGRES_URL")
+def test_postgres_adapter_explicit_commit_and_rollback(postgres_database):
+    dsn=postgres_database
     from app.postgres_adapter import connect
     slug="adapter-transaction-methods"
     with connect(dsn) as c:

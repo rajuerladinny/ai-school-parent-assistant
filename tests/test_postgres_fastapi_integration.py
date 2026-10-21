@@ -9,6 +9,323 @@ from urllib.parse import urlsplit,urlunsplit
 import pytest
 
 
+def test_postgres_index_sources_keep_policy_tenants(postgres_database, monkeypatch):
+    from datetime import date
+    from app import main
+
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    expected=set()
+    with main.db() as connection:
+        for school_id in (1,2,3):
+            connection.execute("INSERT INTO schools(id,slug,name,active) VALUES(?,?,?,?)",
+                (school_id,"school-" + str(school_id),"Fictional school",school_id != 3))
+            row=connection.execute(
+                "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,status,effective_date) "
+                "VALUES(?,'shared-fees',1,'Fees','fees.txt','Fictional school fee policy','approved',?) RETURNING id",
+                (school_id,date.today())).fetchone()
+            if school_id != 3:
+                expected.add(("policy-" + str(row["id"]),school_id))
+            connection.execute("INSERT INTO knowledge(school_id,topic,answer,source) VALUES(?,'Bus','Fictional bus route','Transport')",(school_id,))
+            connection.execute("INSERT INTO documents(school_id,filename,title,content) VALUES(?,'library.txt','Library','Fictional library returns')",(school_id,))
+    records=main.records_for_index()
+    assert {(r["id"],r["school_id"]) for r in records if r["id"].startswith("policy-")} == expected
+    assert all(r["school_id"] != 3 for r in records)
+    for school_id in (1,2):
+        assert {r["id"].split("-")[0] for r in records if r["school_id"] == school_id} == {"faq","doc","policy"}
+
+
+@pytest.mark.parametrize("routes", [
+    ("/api/policies", "/api/policies"),
+    ("/api/school-admin/policies", "/api/school-admin/policies"),
+    ("/api/policies", "/api/school-admin/policies"),
+])
+@pytest.mark.parametrize("existing_version", [0, 3])
+def test_concurrent_postgres_policy_uploads_allocate_distinct_versions(postgres_database, monkeypatch, routes, existing_version):
+    """Hold the school row so both requests overlap before their inserts commit."""
+    import hashlib
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    import psycopg
+    from fastapi.testclient import TestClient
+    from app import main, database_config
+
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    monkeypatch.setenv("SCHOOL_ADMIN_KEY", "concurrent-policy-test-key")
+    monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    token = "concurrent-policy-test-token"
+    with psycopg.connect(postgres_database) as connection:
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School')")
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(2,'other','Other School')")
+        connection.execute(
+            "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date) "
+            "VALUES(2,'concurrent-fees',20,'Other policy','other.txt','Other school policy','2026-01-01')")
+        if existing_version:
+            connection.execute(
+                "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date) "
+                "VALUES(1,'concurrent-fees',%s,'Previous policy','old.txt','Previous policy content','2026-01-01')",
+                (existing_version,))
+        staff_id = connection.execute(
+            "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+            "VALUES(1,'policyadmin','Policy Admin','salt','hash','school_admin') RETURNING id"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO staff_sessions(token_hash,staff_id,expires_at) VALUES(%s,%s,NOW()+INTERVAL '1 hour')",
+            (hashlib.sha256(token.encode()).hexdigest(), staff_id))
+
+    def upload(index):
+        # Separate clients run requests on independent event loops/workers.
+        with TestClient(main.app, raise_server_exceptions=False) as client:
+            return client.post(routes[index], headers={
+                "X-Admin-Key": "concurrent-policy-test-key", "Authorization": "Bearer " + token},
+                data={"policy_key": "concurrent-fees", "title": "Upload " + str(index),
+                      "effective_date": "2026-01-01"},
+                files={"file": ("fees.txt", ("Fictional fee policy content from upload " + str(index)).encode())})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        with psycopg.connect(postgres_database) as blocker:
+            blocker.execute("SELECT id FROM schools WHERE id=1 FOR UPDATE")
+            futures = [pool.submit(upload, index) for index in range(2)]
+            with psycopg.connect(postgres_database, autocommit=True) as monitor:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    waiting = monitor.execute(
+                        "SELECT COUNT(*) FROM pg_stat_activity "
+                        "WHERE datname=current_database() AND wait_event_type='Lock'"
+                    ).fetchone()[0]
+                    if waiting >= 2:
+                        break
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("Both policy uploads must overlap while the school row is locked")
+        # Releasing the row lock lets the uploads finish in transaction order.
+        responses = [future.result(timeout=15) for future in futures]
+    assert [response.status_code for response in responses] == [201, 201], [r.text for r in responses]
+    assert sorted(response.json()["version"] for response in responses) == [existing_version + 1, existing_version + 2]
+    assert len({response.json()["id"] for response in responses}) == 2
+    with psycopg.connect(postgres_database) as connection:
+        rows = connection.execute(
+            "SELECT version,title,content,status FROM policy_versions "
+            "WHERE school_id=1 AND policy_key='concurrent-fees' AND version>%s ORDER BY version",
+            (existing_version,)).fetchall()
+        assert [row[0] for row in rows] == [existing_version + 1, existing_version + 2]
+        assert {row[1] for row in rows} == {"Upload 0", "Upload 1"}
+        assert all(row[2].endswith(row[1][-1]) and row[3] == "draft" for row in rows)
+        assert connection.execute(
+            "SELECT version,content FROM policy_versions WHERE school_id=2"
+        ).fetchall() == [(20, "Other school policy")]
+
+
+def test_postgres_policy_allocation_rolls_back_and_releases_lock(postgres_database, monkeypatch):
+    from app import policies
+    from app.postgres_adapter import connect
+
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    with connect(postgres_database) as connection:
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School')")
+    with pytest.raises(RuntimeError, match="failed upload"):
+        with connect(postgres_database) as connection:
+            assert policies.next_version(connection, "rollback-policy") == 1
+            connection.execute(
+                "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date) "
+                "VALUES(1,'rollback-policy',1,'Failed upload','old.txt','Rolled back content','2026-01-01')")
+            raise RuntimeError("failed upload")
+    with connect(postgres_database) as connection:
+        connection.execute("SET lock_timeout='2s'")
+        assert policies.next_version(connection, "rollback-policy") == 1
+        assert connection.execute("SELECT COUNT(*) FROM policy_versions").fetchone()[0] == 0
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def parent_login_client(request, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main, auth, database_config
+
+    backend = request.param
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", backend)
+    monkeypatch.setattr(auth, "_login_attempts", {})
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    if backend == "postgres":
+        target = request.getfixturevalue("postgres_database")
+        monkeypatch.setenv("SCHOOL_POSTGRES_DSN", target)
+        monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+    else:
+        monkeypatch.setattr(main, "DB", str(tmp_path / "school-login.db"))
+        main.setup()
+    with main.db() as connection:
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School') ON CONFLICT DO NOTHING")
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(2,'second-school','Second School')")
+        salt = "cd" * 16
+        for school_id, username in ((1, "firstparent"), (2, "secondparent")):
+            connection.execute(
+                "INSERT INTO parent_accounts(school_id,username,display_name,salt,password_hash) "
+                "VALUES(?,?,?,?,?)",
+                (school_id, username, "Fictional Parent", salt, auth.digest("school-parent-password", salt)))
+    with TestClient(main.app) as client:
+        yield client, backend
+
+
+def test_parent_login_requires_matching_school_code(parent_login_client):
+    client, _ = parent_login_client
+    for username, code, school_id in (("FIRSTPARENT", "demo", 1), ("SECONDPARENT", "second-school", 2)):
+        login = client.post("/api/auth/login", json={
+            "username": username, "password": "school-parent-password", "school_code": code})
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+        assert client.get("/api/auth/me", headers=headers).json()["school_id"] == school_id
+    for code, password in (("demo", "school-parent-password"),
+                           ("missing-school", "school-parent-password"),
+                           ("second-school", "incorrect-password")):
+        denied = client.post("/api/auth/login", json={
+            "username": "secondparent", "password": password, "school_code": code})
+        assert denied.status_code == 401, denied.text
+        assert denied.json() == {"detail": "Invalid credentials"}
+
+
+def test_parent_login_legacy_unique_username_and_inactive_school(parent_login_client):
+    client, _ = parent_login_client
+    from app import main
+
+    login = client.post("/api/auth/login", json={
+        "username": "secondparent", "password": "school-parent-password"})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+    assert client.get("/api/auth/me", headers=headers).json()["school_id"] == 2
+    with main.db() as connection:
+        connection.execute("UPDATE schools SET active=FALSE WHERE id=2")
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+    for extra in ({}, {"school_code": "second-school"}):
+        denied = client.post("/api/auth/login", json={
+            "username": "secondparent", "password": "school-parent-password", **extra})
+        assert denied.status_code == 401, denied.text
+        assert denied.json() == {"detail": "Invalid credentials"}
+
+
+def test_parent_login_changing_school_code_does_not_reset_throttle(parent_login_client):
+    client, _ = parent_login_client
+    for index in range(5):
+        denied = client.post("/api/auth/login", json={
+            "username": "firstparent", "password": "incorrect-password",
+            "school_code": "unknown-school-" + str(index)})
+        assert denied.status_code == 401, denied.text
+    blocked = client.post("/api/auth/login", json={
+        "username": "FIRSTPARENT", "password": "school-parent-password", "school_code": "demo"})
+    assert blocked.status_code == 429, blocked.text
+    assert int(blocked.headers["Retry-After"]) > 0
+
+
+@pytest.mark.parametrize("disabled", [None, "account", "school"])
+def test_parent_login_duplicate_usernames_never_select_another_school(postgres_database, monkeypatch, disabled):
+    from fastapi.testclient import TestClient
+    from app import main, auth, database_config
+
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    salt = "ef" * 16
+    with main.db() as connection:
+        for school_id, code in ((1, "first-school"), (2, "second-school")):
+            connection.execute("INSERT INTO schools(id,slug,name) VALUES(?,?,?)", (school_id, code, code))
+            connection.execute(
+                "INSERT INTO parent_accounts(school_id,username,display_name,salt,password_hash) VALUES(?,?,?,?,?)",
+                (school_id, "sharedparent", code, salt, auth.digest("same-parent-password", salt)))
+        if disabled == "account":
+            connection.execute("UPDATE parent_accounts SET enabled=FALSE WHERE school_id=1")
+        elif disabled == "school":
+            connection.execute("UPDATE schools SET active=FALSE WHERE id=1")
+    with TestClient(main.app) as client:
+        payload = {"username": "sharedparent", "password": "same-parent-password"}
+        unscoped = client.post("/api/auth/login", json=payload)
+        assert unscoped.status_code == 401, unscoped.text
+        assert unscoped.json() == {"detail": "Invalid credentials"}
+        for school_id, code in ((1, "first-school"), (2, "second-school")):
+            login = client.post("/api/auth/login", json={**payload, "school_code": code})
+            if school_id == 1 and disabled:
+                assert login.status_code == 401, login.text
+                assert login.json() == {"detail": "Invalid credentials"}
+                continue
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+            assert client.get("/api/auth/me", headers=headers).json()["school_id"] == school_id
+        with main.db() as connection:
+            rows = connection.execute(
+                "SELECT a.school_id FROM parent_sessions s JOIN parent_accounts a ON a.id=s.parent_id ORDER BY a.school_id"
+            ).fetchall()
+            assert [row["school_id"] for row in rows] == ([2] if disabled else [1, 2])
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+@pytest.mark.parametrize("path,table", [
+    ("/api/auth/parents", "parent_accounts"),
+    ("/api/staff-auth/accounts", "staff_accounts"),
+    ("/api/school-admin/parents", "parent_accounts"),
+    ("/api/school-admin/staff", "staff_accounts"),
+])
+def test_account_creation_duplicate_username(backend, path, table, request, tmp_path, monkeypatch):
+    """Duplicate account requests return 409 and leave the original account intact."""
+    from fastapi.testclient import TestClient
+    from app import main, auth, database_config
+
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", backend)
+    monkeypatch.setenv("SCHOOL_ADMIN_KEY", "account-conflict-test-key")
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    if backend == "postgres":
+        target = request.getfixturevalue("postgres_database")
+        monkeypatch.setenv("SCHOOL_POSTGRES_DSN", target)
+        # This test validates compatibility without opening the production gate.
+        monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+        with main.db() as connection:
+            connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'conflict-test','Test School')")
+    else:
+        monkeypatch.setattr(main, "DB", str(tmp_path / "accounts.db"))
+        main.setup()
+
+    salt = "ab" * 16
+    with main.db() as connection:
+        connection.execute(
+            "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+            "VALUES(1,?,?,?,?,?)",
+            ("conflictadmin", "Test Administrator", salt,
+             auth.digest("administrator-test-password", salt), "school_admin"))
+
+    with TestClient(main.app) as client:
+        login = client.post("/api/staff-auth/login", json={
+            "username": "conflictadmin", "password": "administrator-test-password"})
+        assert login.status_code == 200, login.text
+        headers = ({"Authorization": "Bearer " + login.json()["access_token"]}
+                   if path.startswith("/api/school-admin/")
+                   else {"X-Admin-Key": "account-conflict-test-key"})
+        payload = {"username": "conflictuser", "display_name": "Original Account",
+                   "password": "original-account-password"}
+        if table == "staff_accounts":
+            payload["role"] = "staff"
+        created = client.post(path, headers=headers, json=payload)
+        assert created.status_code == 201, created.text
+        duplicate = client.post(path, headers=headers, json={
+            **payload, "username": "CONFLICTUSER", "display_name": "Replacement Account",
+            "password": "replacement-account-password"})
+        assert duplicate.status_code == 409, duplicate.text
+        assert duplicate.json()["detail"] == "Username already exists"
+        with main.db() as connection:
+            rows = connection.execute(
+                f"SELECT id,display_name,salt,password_hash FROM {table} WHERE username=?",
+                ("conflictuser",)).fetchall()
+            assert len(rows) == 1
+            assert rows[0]["id"] == created.json()["id"]
+            assert rows[0]["display_name"] == "Original Account"
+            assert rows[0]["password_hash"] == auth.digest(payload["password"], rows[0]["salt"])
+        # A failed duplicate request must not poison subsequent transactions.
+        following = client.post(path, headers=headers, json={**payload, "username": "followinguser"})
+        assert following.status_code == 201, following.text
+
+
 def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
     dsn=os.getenv("TEST_POSTGRES_URL")
     if not dsn:pytest.skip("Requires TEST_POSTGRES_URL")

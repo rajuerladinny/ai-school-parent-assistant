@@ -64,32 +64,44 @@ class Credentials(BaseModel):
     # Bound untrusted login payloads before expensive password hashing or Redis calls.
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=128)
+    school_code: str | None = Field(default=None, min_length=1, max_length=80)
 
 @router.post("/parents",status_code=201)
 def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
     _admin(x_admin_key)
     salt=secrets.token_hex(16)
     with _db() as c:
-        try:
-            school=c.execute("SELECT id FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone()
-            if not school:raise HTTPException(404,"School not found")
-            cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?) RETURNING id",
-                          (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
-        except __import__("sqlite3").IntegrityError:
+        school=c.execute("SELECT id FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone()
+        if not school:raise HTTPException(404,"School not found")
+        cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id",
+                      (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
+        row=cur.fetchone()
+        if row is None:
             raise HTTPException(409,"Username already exists")
-        return {"id":cur.fetchone()["id"],"username":item.username.lower(),"role":"parent"}
+        return {"id":row["id"],"username":item.username.lower(),"role":"parent"}
 
 @router.post("/login")
 def login(item:Credentials,request:Request):
     ip=request.client.host if request.client else 'unknown'
+    username=item.username.lower()
+    # Preserve username/IP throttling across codes: changing the school code
+    # must not reset the attempt budget for an account name.
     if not shared_login_limit.check('parent',item.username,ip):
         _check_login_limit(item.username,ip)
     with _db() as c:
-        row=c.execute("""SELECT a.* FROM parent_accounts a
+        query="""SELECT a.*,sc.active AS school_active FROM parent_accounts a
             JOIN schools sc ON sc.id=a.school_id
-            WHERE a.username=? AND sc.active=TRUE""",(item.username,)).fetchone()
-        # Same generic error for unknown user, wrong password, or disabled account.
-        if not row or not row["enabled"] or not hmac.compare_digest(
+            WHERE a.username=?"""
+        params=[username]
+        if item.school_code is not None:
+            query+=" AND sc.slug=?"
+            params.append(item.school_code)
+        # Include disabled accounts/schools when detecting ambiguity. Otherwise
+        # disabling one school could silently select a different parent's account.
+        rows=c.execute(query+" LIMIT 2",tuple(params)).fetchall()
+        row=rows[0] if len(rows)==1 else None
+        # Unknown, ambiguous, wrong-school and disabled credentials look identical.
+        if not row or not row["school_active"] or not row["enabled"] or not hmac.compare_digest(
             digest(item.password,row["salt"]),row["password_hash"]):
             raise HTTPException(401,"Invalid credentials")
         token=secrets.token_urlsafe(32)
