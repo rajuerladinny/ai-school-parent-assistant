@@ -1,27 +1,35 @@
-# Production readiness — phase 2 (PR #30)
+# Production readiness � consolidated draft PR #30
 
-**Release status: BLOCKED. No deployment or merge approval is implied.**
+Release status: BLOCKED. Merging this PR does not authorize deployment.
 
-## Implementation workstreams
+This draft collects the remaining work in one PR, with separate commits for review.
+PRs #31�#36 are already merged into main; their database, authentication,
+policy concurrency, restore integrity and tenant indexing fixes are prerequisites.
 
-1. **PostgreSQL runtime:** Inventory SQLite-only SQL and schema assumptions; implement PostgreSQL-safe runtime queries, versioned migrations, tenant-scoped data access, downgrade and rollback. Preserve the current fail-closed production startup gate until integration tests pass without monkeypatching it.
-2. **Authentication:** Select managed identity, enforce admin MFA, session revocation and recovery; test disabled schools, staff and parents; audit legacy privileged endpoints and cross-school authorization.
-3. **Dependency security:** Remediate or replace the optional ChromaDB version with five locally reported advisories; keep production RAG disabled until audited and explicitly accepted.
-4. **Network and rate limiting:** Verify trusted reverse proxy and HTTPS, explicit host allowlist, authenticated TLS Redis and shared throttling across multiple workers, plus Redis outage/recovery.
-5. **Monitoring and recovery:** Configure centralized redacted logs, actionable alerts, encrypted backup retention, measured RPO/RTO and PostgreSQL restore plus staging rollback drills.
-6. **Release evidence:** Run local tests, security audits, staging tests and independent reviews; document sign-off and maintain separate merge/deploy approval.
+## Acceptance checklist
 
-## Acceptance rules
+| Workstream | Evidence already available | Remaining acceptance |
+| --- | --- | --- |
+| PostgreSQL | Isolated schema, adapter, HTTP, migration and real restore tests | Least-privileged runtime role, versioned upgrade/rollback, startup against restored database without patched release gates |
+| Connection recovery | Real backend termination test verifies transaction rollback and a successful fresh connection | Staging outage and recovery under concurrent traffic |
+| Identity | Tenant-scoped login, disabled-account/session checks, school-code login | Choose managed provider, admin MFA, recovery and role lifecycle, audited break-glass procedure |
+| Network | Production import and request checks reject plaintext Redis even with the legacy override | Trusted proxy/client-IP configuration, authenticated TLS Redis across multiple workers, outage drill |
+| Retrieval | Real isolated vector store tests cover tenant and policy eligibility | Fresh optional dependency audit and remediation, representative model answer-quality evaluation |
+| Operations | Redacted application events and isolated restore tools | Central collection and alerts, encrypted backup retention, measured RPO/RTO, health monitoring |
+| Release | Main baseline: 170 local tests passed before this draft update | Synthetic staging load, rollback drill, privacy/security review and named operational sign-off |
 
-- No real school, child or parent records in development or test environments.
-- No production database gate removal solely because a developer sets an environment variable.
-- No suppression of vulnerability findings to satisfy the checklist.
-- No automatic GitHub Actions trigger while Actions minutes are exhausted; commits on this branch use [skip ci].
-- Merging PR #30 does not authorize deployment.
+## Rules for recording evidence
 
-## Initial baseline
+- Use fictional records and disposable databases for automated acceptance.
+- Keep production database and retrieval startup gates intact until their acceptance criteria are met.
+- Record exact commit, command, result and environment for each drill; do not treat a skipped test as acceptance.
+- CI must run on the consolidated branch; old Actions-budget and skip-CI instructions no longer apply.
+- Provider and staging-platform choices are pending. Provider-neutral preparation may continue, but external deployment evidence cannot be inferred from local tests.
+- Keep this PR draft until implementation and evidence are complete. Merge and deployment remain separate decisions.
 
-- PR #29 merged to main on 2026-10-19.
-- Developer-reported local suite: 120 passed, 2 warnings, 0 failures, before this PR.
-- PostgreSQL production runtime remains blocked intentionally.
-- External infrastructure acceptance is not yet demonstrated.
+## Current batch
+
+- Synchronize the existing draft with main through PR #36.
+- Reject the insecure Redis override consistently at production startup and login.
+- Exercise a real PostgreSQL connection termination, uncommitted-write rollback,
+  and successful fresh-connection write/read, using the disposable test fixture.
