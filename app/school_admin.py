@@ -156,11 +156,7 @@ async def upload_policy(
         user = staff_auth.principal(c, authorization, roles=("school_admin",))
         if user["school_id"] != school_id:
             raise HTTPException(403, "School authorization changed")
-        if __import__("app.database_config", fromlist=["backend"]).backend() == "sqlite":
-            c.execute("BEGIN IMMEDIATE")
-        version = c.execute(
-            "SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=?",
-            (key, school_id)).fetchone()[0]
+        version = policies.next_version(c, key, school_id)
         cur = c.execute(
             "INSERT INTO policy_versions(policy_key,version,title,filename,content,effective_date,created_at,school_id) "
             "VALUES(?,?,?,?,?,?,?,?) RETURNING id",

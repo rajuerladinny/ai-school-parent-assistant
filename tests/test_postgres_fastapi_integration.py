@@ -9,6 +9,110 @@ from urllib.parse import urlsplit,urlunsplit
 import pytest
 
 
+@pytest.mark.parametrize("routes", [
+    ("/api/policies", "/api/policies"),
+    ("/api/school-admin/policies", "/api/school-admin/policies"),
+    ("/api/policies", "/api/school-admin/policies"),
+])
+@pytest.mark.parametrize("existing_version", [0, 3])
+def test_concurrent_postgres_policy_uploads_allocate_distinct_versions(postgres_database, monkeypatch, routes, existing_version):
+    """Hold the school row so both requests overlap before their inserts commit."""
+    import hashlib
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    import psycopg
+    from fastapi.testclient import TestClient
+    from app import main, database_config
+
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    monkeypatch.setenv("SCHOOL_ADMIN_KEY", "concurrent-policy-test-key")
+    monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    token = "concurrent-policy-test-token"
+    with psycopg.connect(postgres_database) as connection:
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School')")
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(2,'other','Other School')")
+        connection.execute(
+            "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date) "
+            "VALUES(2,'concurrent-fees',20,'Other policy','other.txt','Other school policy','2026-01-01')")
+        if existing_version:
+            connection.execute(
+                "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date) "
+                "VALUES(1,'concurrent-fees',%s,'Previous policy','old.txt','Previous policy content','2026-01-01')",
+                (existing_version,))
+        staff_id = connection.execute(
+            "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+            "VALUES(1,'policyadmin','Policy Admin','salt','hash','school_admin') RETURNING id"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO staff_sessions(token_hash,staff_id,expires_at) VALUES(%s,%s,NOW()+INTERVAL '1 hour')",
+            (hashlib.sha256(token.encode()).hexdigest(), staff_id))
+
+    def upload(index):
+        # Separate clients run requests on independent event loops/workers.
+        with TestClient(main.app, raise_server_exceptions=False) as client:
+            return client.post(routes[index], headers={
+                "X-Admin-Key": "concurrent-policy-test-key", "Authorization": "Bearer " + token},
+                data={"policy_key": "concurrent-fees", "title": "Upload " + str(index),
+                      "effective_date": "2026-01-01"},
+                files={"file": ("fees.txt", ("Fictional fee policy content from upload " + str(index)).encode())})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        with psycopg.connect(postgres_database) as blocker:
+            blocker.execute("SELECT id FROM schools WHERE id=1 FOR UPDATE")
+            futures = [pool.submit(upload, index) for index in range(2)]
+            with psycopg.connect(postgres_database, autocommit=True) as monitor:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    waiting = monitor.execute(
+                        "SELECT COUNT(*) FROM pg_stat_activity "
+                        "WHERE datname=current_database() AND wait_event_type='Lock'"
+                    ).fetchone()[0]
+                    if waiting >= 2:
+                        break
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("Both policy uploads must overlap while the school row is locked")
+        # Releasing the row lock lets the uploads finish in transaction order.
+        responses = [future.result(timeout=15) for future in futures]
+    assert [response.status_code for response in responses] == [201, 201], [r.text for r in responses]
+    assert sorted(response.json()["version"] for response in responses) == [existing_version + 1, existing_version + 2]
+    assert len({response.json()["id"] for response in responses}) == 2
+    with psycopg.connect(postgres_database) as connection:
+        rows = connection.execute(
+            "SELECT version,title,content,status FROM policy_versions "
+            "WHERE school_id=1 AND policy_key='concurrent-fees' AND version>%s ORDER BY version",
+            (existing_version,)).fetchall()
+        assert [row[0] for row in rows] == [existing_version + 1, existing_version + 2]
+        assert {row[1] for row in rows} == {"Upload 0", "Upload 1"}
+        assert all(row[2].endswith(row[1][-1]) and row[3] == "draft" for row in rows)
+        assert connection.execute(
+            "SELECT version,content FROM policy_versions WHERE school_id=2"
+        ).fetchall() == [(20, "Other school policy")]
+
+
+def test_postgres_policy_allocation_rolls_back_and_releases_lock(postgres_database, monkeypatch):
+    from app import policies
+    from app.postgres_adapter import connect
+
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    with connect(postgres_database) as connection:
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School')")
+    with pytest.raises(RuntimeError, match="failed upload"):
+        with connect(postgres_database) as connection:
+            assert policies.next_version(connection, "rollback-policy") == 1
+            connection.execute(
+                "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,effective_date) "
+                "VALUES(1,'rollback-policy',1,'Failed upload','old.txt','Rolled back content','2026-01-01')")
+            raise RuntimeError("failed upload")
+    with connect(postgres_database) as connection:
+        connection.execute("SET lock_timeout='2s'")
+        assert policies.next_version(connection, "rollback-policy") == 1
+        assert connection.execute("SELECT COUNT(*) FROM policy_versions").fetchone()[0] == 0
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
 def parent_login_client(request, tmp_path, monkeypatch):
     from fastapi.testclient import TestClient

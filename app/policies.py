@@ -7,7 +7,7 @@ import sqlite3
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from . import conflicts
+from . import conflicts, database_config
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 _db = None
@@ -53,6 +53,28 @@ def _validate_date(value):
     try: return date.fromisoformat(value).isoformat()
     except (ValueError, TypeError): raise HTTPException(422, "effective_date must be YYYY-MM-DD")
 
+
+def next_version(connection, policy_key, school_id=1):
+    """Lock allocation until the caller's enclosing insert transaction ends.
+
+    A school row exists before its first policy, so PostgreSQL can serialize
+    even first uploads. Both upload APIs must use this same lock protocol.
+    """
+    if database_config.backend() == "sqlite":
+        connection.execute("BEGIN IMMEDIATE")
+        lock = ""
+    else:
+        lock = " FOR UPDATE"
+    school = connection.execute(
+        "SELECT id FROM schools WHERE id=? AND active=TRUE" + lock, (school_id,)
+    ).fetchone()
+    if not school:
+        raise HTTPException(404, "Active school not found")
+    return connection.execute(
+        "SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=?",
+        (policy_key, school_id)).fetchone()[0]
+
+
 @router.get("")
 def list_policies(x_admin_key: str | None = Header(None)):
     _authorized(x_admin_key)
@@ -85,10 +107,7 @@ async def upload_policy(policy_key: str = Form(...), title: str = Form(...),
     if not (30 <= len(content) <= 2_000_000):
         raise HTTPException(422, "Document must contain 30 to 2,000,000 characters")
     with _db() as c:
-        # IMMEDIATE transaction prevents concurrent uploads getting the same version.
-        if __import__("app.database_config",fromlist=["backend"]).backend()=="sqlite":
-            c.execute("BEGIN IMMEDIATE")
-        version = c.execute("SELECT COALESCE(MAX(version),0)+1 FROM policy_versions WHERE policy_key=? AND school_id=1", (policy_key,)).fetchone()[0]
+        version = next_version(c, policy_key)
         cur = c.execute("""INSERT INTO policy_versions
             (policy_key,version,title,filename,content,effective_date,created_at,school_id)
             VALUES (?,?,?,?,?,?,?,?) RETURNING id""",
