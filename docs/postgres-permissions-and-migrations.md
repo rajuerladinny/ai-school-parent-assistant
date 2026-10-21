@@ -68,7 +68,6 @@ traffic switching, and record the exact backup and application versions.
 ## Remaining acceptance
 
 - Runtime-login credentials and effective permission review in staging.
-- Concurrent HTTP writes under the restricted login.
 - Adoption path for existing bootstrap/SQLite-migrated databases.
 - Restored-database application startup without patched readiness checks.
 - Successful-release rollback drill and measured recovery objectives.
@@ -79,3 +78,12 @@ then confirms the restored migration runner is a no-op. It reprovisions a
 restricted login and verifies reads, writes and denied ledger access. Restore
 comparison now rejects missing or altered ledger rows, including timestamps.
 This validates database recovery; it does not bypass the application startup gate.
+
+Concurrent policy-upload tests run with both owner and restricted-login DSNs,
+covering both legacy and school-admin routes and a mix of those routes, with
+and without previous versions. A separate owner connection holds the school row
+lock; the monitor requires two waiting requests authenticated as the runtime
+login before releasing it. Both uploads must then return distinct consecutive
+versions while leaving the other school's policy unchanged. Administrative
+monitoring and test data setup use the owner DSN; HTTP requests use the selected
+runtime DSN. Production startup checks remain patched only within these tests.
