@@ -24,3 +24,9 @@ def test_login_rejects_invalid_lengths(credentials, field, value):
     payload[field] = value
     with pytest.raises(ValidationError):
         credentials(**payload)
+
+
+@pytest.mark.parametrize("school_code", ["", "s" * 81])
+def test_parent_login_rejects_invalid_school_code_length(school_code):
+    with pytest.raises(ValidationError):
+        ParentCredentials(username="school_user", password="test-password", school_code=school_code)
