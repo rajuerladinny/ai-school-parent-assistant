@@ -4,14 +4,13 @@ Requires PostgreSQL client binaries, a running server and credentials. Never res
 into the source database. Run against an isolated test cluster, not production.
 """
 import argparse
-import os
-import subprocess
-import tempfile
-from pathlib import Path
 
+if __name__ == "__main__" and not __package__:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def run(*args,env=None):
-    subprocess.run(list(args),check=True,env=env)
+from scripts.postgres_restore_verify import verify as verify_restore
 
 
 def verify(source_dsn,restore_dsn):
@@ -21,23 +20,8 @@ def verify(source_dsn,restore_dsn):
         raise ValueError("Source and restore database DSNs must differ")
     if not restore_dsn:
         raise ValueError("Disposable restore database DSN is required")
-    with tempfile.TemporaryDirectory(prefix="school-backup-") as tmp:
-        archive=str(Path(tmp)/"school.dump")
-        run("pg_dump","--format=custom","--no-owner","--no-acl","--file",archive,"--dbname",source_dsn)
-        if Path(archive).stat().st_size==0:
-            raise RuntimeError("Backup archive is empty")
-        run("pg_restore","--exit-on-error","--single-transaction","--no-owner","--no-acl",
-            "--dbname",restore_dsn,archive)
-        import psycopg
-        with psycopg.connect(source_dsn) as source,psycopg.connect(restore_dsn) as restored:
-            from scripts.migrate_sqlite_to_postgres import TABLES
-            for table in TABLES:
-                with source.cursor() as s,restored.cursor() as d:
-                    s.execute(f"SELECT COUNT(*) FROM {table}")
-                    d.execute(f"SELECT COUNT(*) FROM {table}")
-                    if s.fetchone()[0]!=d.fetchone()[0]:
-                        raise RuntimeError(f"Restore count mismatch: {table}")
-        return True
+    verify_restore(source_dsn, restore_dsn)
+    return True
 
 
 if __name__=="__main__":
@@ -47,4 +31,4 @@ if __name__=="__main__":
                         help="MUST point to a separate, empty disposable database")
     args=parser.parse_args()
     verify(args.source_dsn,args.restore_dsn)
-    print("Backup and restore row-count verification passed")
+    print("Backup and restore data and sequence verification passed")
