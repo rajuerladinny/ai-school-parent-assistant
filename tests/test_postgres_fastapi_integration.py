@@ -9,6 +9,127 @@ from urllib.parse import urlsplit,urlunsplit
 import pytest
 
 
+@pytest.fixture(params=["sqlite", "postgres"])
+def parent_login_client(request, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main, auth, database_config
+
+    backend = request.param
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", backend)
+    monkeypatch.setattr(auth, "_login_attempts", {})
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    if backend == "postgres":
+        target = request.getfixturevalue("postgres_database")
+        monkeypatch.setenv("SCHOOL_POSTGRES_DSN", target)
+        monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+    else:
+        monkeypatch.setattr(main, "DB", str(tmp_path / "school-login.db"))
+        main.setup()
+    with main.db() as connection:
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School') ON CONFLICT DO NOTHING")
+        connection.execute("INSERT INTO schools(id,slug,name) VALUES(2,'second-school','Second School')")
+        salt = "cd" * 16
+        for school_id, username in ((1, "firstparent"), (2, "secondparent")):
+            connection.execute(
+                "INSERT INTO parent_accounts(school_id,username,display_name,salt,password_hash) "
+                "VALUES(?,?,?,?,?)",
+                (school_id, username, "Fictional Parent", salt, auth.digest("school-parent-password", salt)))
+    with TestClient(main.app) as client:
+        yield client, backend
+
+
+def test_parent_login_requires_matching_school_code(parent_login_client):
+    client, _ = parent_login_client
+    for username, code, school_id in (("FIRSTPARENT", "demo", 1), ("SECONDPARENT", "second-school", 2)):
+        login = client.post("/api/auth/login", json={
+            "username": username, "password": "school-parent-password", "school_code": code})
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+        assert client.get("/api/auth/me", headers=headers).json()["school_id"] == school_id
+    for code, password in (("demo", "school-parent-password"),
+                           ("missing-school", "school-parent-password"),
+                           ("second-school", "incorrect-password")):
+        denied = client.post("/api/auth/login", json={
+            "username": "secondparent", "password": password, "school_code": code})
+        assert denied.status_code == 401, denied.text
+        assert denied.json() == {"detail": "Invalid credentials"}
+
+
+def test_parent_login_legacy_unique_username_and_inactive_school(parent_login_client):
+    client, _ = parent_login_client
+    from app import main
+
+    login = client.post("/api/auth/login", json={
+        "username": "secondparent", "password": "school-parent-password"})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+    assert client.get("/api/auth/me", headers=headers).json()["school_id"] == 2
+    with main.db() as connection:
+        connection.execute("UPDATE schools SET active=FALSE WHERE id=2")
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+    for extra in ({}, {"school_code": "second-school"}):
+        denied = client.post("/api/auth/login", json={
+            "username": "secondparent", "password": "school-parent-password", **extra})
+        assert denied.status_code == 401, denied.text
+        assert denied.json() == {"detail": "Invalid credentials"}
+
+
+def test_parent_login_changing_school_code_does_not_reset_throttle(parent_login_client):
+    client, _ = parent_login_client
+    for index in range(5):
+        denied = client.post("/api/auth/login", json={
+            "username": "firstparent", "password": "incorrect-password",
+            "school_code": "unknown-school-" + str(index)})
+        assert denied.status_code == 401, denied.text
+    blocked = client.post("/api/auth/login", json={
+        "username": "FIRSTPARENT", "password": "school-parent-password", "school_code": "demo"})
+    assert blocked.status_code == 429, blocked.text
+    assert int(blocked.headers["Retry-After"]) > 0
+
+
+@pytest.mark.parametrize("disabled", [None, "account", "school"])
+def test_parent_login_duplicate_usernames_never_select_another_school(postgres_database, monkeypatch, disabled):
+    from fastapi.testclient import TestClient
+    from app import main, auth, database_config
+
+    monkeypatch.setenv("SCHOOL_ENV", "test")
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
+    monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    salt = "ef" * 16
+    with main.db() as connection:
+        for school_id, code in ((1, "first-school"), (2, "second-school")):
+            connection.execute("INSERT INTO schools(id,slug,name) VALUES(?,?,?)", (school_id, code, code))
+            connection.execute(
+                "INSERT INTO parent_accounts(school_id,username,display_name,salt,password_hash) VALUES(?,?,?,?,?)",
+                (school_id, "sharedparent", code, salt, auth.digest("same-parent-password", salt)))
+        if disabled == "account":
+            connection.execute("UPDATE parent_accounts SET enabled=FALSE WHERE school_id=1")
+        elif disabled == "school":
+            connection.execute("UPDATE schools SET active=FALSE WHERE id=1")
+    with TestClient(main.app) as client:
+        payload = {"username": "sharedparent", "password": "same-parent-password"}
+        unscoped = client.post("/api/auth/login", json=payload)
+        assert unscoped.status_code == 401, unscoped.text
+        assert unscoped.json() == {"detail": "Invalid credentials"}
+        for school_id, code in ((1, "first-school"), (2, "second-school")):
+            login = client.post("/api/auth/login", json={**payload, "school_code": code})
+            if school_id == 1 and disabled:
+                assert login.status_code == 401, login.text
+                assert login.json() == {"detail": "Invalid credentials"}
+                continue
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+            assert client.get("/api/auth/me", headers=headers).json()["school_id"] == school_id
+        with main.db() as connection:
+            rows = connection.execute(
+                "SELECT a.school_id FROM parent_sessions s JOIN parent_accounts a ON a.id=s.parent_id ORDER BY a.school_id"
+            ).fetchall()
+            assert [row["school_id"] for row in rows] == ([2] if disabled else [1, 2])
+
+
 @pytest.mark.parametrize("backend", ["sqlite", "postgres"])
 @pytest.mark.parametrize("path,table", [
     ("/api/auth/parents", "parent_accounts"),

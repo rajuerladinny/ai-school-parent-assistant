@@ -58,6 +58,14 @@ OLLAMA_MODEL=llama3.2:3b
 
 If Ollama is not configured or fails, the app transparently returns retrieved excerpts instead of pretending a language model answered. This keeps the MVP usable without OpenAI API keys or hosted model charges. Local models still require disk space, memory and CPU/GPU resources.
 
+## School-aware parent login
+
+The parent login form asks for the school code provided by the school (`demo` for the fictional demo school). Codes match the school's registry slug exactly. The API accepts `school_code` alongside `username` and `password` in `POST /api/auth/login` and authenticates only within that school. Parent usernames are normalized to lowercase, consistent with account creation.
+
+Existing API callers may omit `school_code` only when the username identifies exactly one account across all schools. Duplicate usernames return the same generic HTTP 401 as unknown, disabled, or incorrect credentials; the server never chooses an account by row order or by trying the password against multiple schools. Disabled accounts and schools still count when detecting ambiguity. Existing username/IP throttles also apply across school codes.
+
+This change does not enable production or change SQLite's existing globally unique parent usernames. PostgreSQL permits tenant-scoped parent usernames; its cross-school login behavior is covered by integration tests.
+
 ## Verify
 
 ```bash
