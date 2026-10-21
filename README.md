@@ -37,6 +37,8 @@ Open http://127.0.0.1:8000. The chat works with sample FAQs. The admin dashboard
 
 ## Enable local RAG vector search
 
+Index rebuilds include active FAQs/documents and the current approved, effective policy versions from every active school. Each record retains its school ID; vector retrieval filters by that school and checks returned metadata again. Rejected, draft, future and disabled-school policies are excluded, and rebuilding removes content that is no longer eligible. Chunk identity includes the school and displayed source metadata, so identical source IDs across schools do not collide and metadata changes invalidate the cache. Offline tests exercise actual temporary Chroma collections and parent chat with deterministic embeddings; they do not establish real-model answer quality. Production vector retrieval remains disabled.
+
 Install the optional dependencies:
 
 ```bash

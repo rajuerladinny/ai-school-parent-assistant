@@ -5,6 +5,7 @@ without the optional dependencies and falls back to the existing FAQ matching.
 """
 import os
 import hashlib
+import json
 from typing import Iterable
 
 _model = None
@@ -61,12 +62,21 @@ def rebuild(records: Iterable[dict]) -> bool:
     ids = []
     metadatas = []
     for record in records:
+        school_id = record.get("school_id", 1)
+        if not isinstance(school_id, int) or isinstance(school_id, bool) or school_id < 1:
+            raise ValueError("A valid school_id is required for indexing")
+        metadata = {"school_id": school_id,
+                    "source": str(record.get("source", "School information"))[:200],
+                    "topic": str(record.get("topic", "Document"))[:200]}
         for i, chunk in enumerate(chunk_text(str(record.get("text", "")))):
             docs.append(chunk)
-            ids.append(hashlib.sha256(f"{record.get('id')}:{i}:{chunk}".encode()).hexdigest()[:32])
-            metadatas.append({"school_id":int(record.get("school_id",1)),
-                              "source": str(record.get("source", "School information"))[:200],
-                              "topic": str(record.get("topic", "Document"))[:200]})
+            # Tenant and metadata are part of identity/cache invalidation, even
+            # when the text is unchanged or two schools use the same source ID.
+            identity = json.dumps([school_id, str(record.get("id")), i, chunk,
+                                   metadata["source"], metadata["topic"]],
+                                  ensure_ascii=False, separators=(",", ":"))
+            ids.append(hashlib.sha256(identity.encode()).hexdigest()[:32])
+            metadatas.append(metadata.copy())
     fingerprint = hashlib.sha256("\n".join(ids).encode()).hexdigest()
     if fingerprint == _last_fingerprint:
         return True

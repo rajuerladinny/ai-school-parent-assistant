@@ -2,6 +2,14 @@ import pytest
 from fastapi.testclient import TestClient
 from app import main
 
+
+def test_index_sources_include_each_active_schools_effective_policies(policy_index_database):
+    records=policy_index_database.records_for_index()
+    assert {(r["id"],r["school_id"]) for r in records if r["id"].startswith("policy-")} == {
+        ("policy-101",1),("policy-201",2)}
+    assert all(r["school_id"] != 3 for r in records)
+    assert {r["id"].split("-")[0] for r in records if r["school_id"] == 2} == {"policy","faq","doc"}
+
 @pytest.fixture
 def client(tmp_path,monkeypatch):
     monkeypatch.setattr(main,"DB",str(tmp_path/"test.db"))
