@@ -52,3 +52,52 @@ def test_reject_keeps_old_version_and_requires_auth(client):
 def test_invalid_policy_key_and_date(client):
     assert upload(client,"School fees payable at the office on weekdays.",date.today().isoformat(),key="../oops").status_code == 422
     assert upload(client,"School fees payable at the office on weekdays.","next week").status_code == 422
+
+
+@pytest.mark.parametrize("routes", [
+    ("/api/policies", "/api/policies"),
+    ("/api/school-admin/policies", "/api/school-admin/policies"),
+    ("/api/policies", "/api/school-admin/policies"),
+])
+def test_concurrent_sqlite_policy_uploads(client, monkeypatch, routes):
+    import hashlib
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from app import school_admin
+
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "sqlite")
+    token = "sqlite-policy-concurrency-token"
+    with main.db() as connection:
+        row = connection.execute(
+            "INSERT INTO staff_accounts(school_id,username,display_name,salt,password_hash,role) "
+            "VALUES(1,'policyadmin','Policy Admin','salt','hash','school_admin') RETURNING id"
+        ).fetchone()
+        connection.execute("INSERT INTO staff_sessions(token_hash,staff_id,expires_at) VALUES(?,?,?)",
+                           (hashlib.sha256(token.encode()).hexdigest(), row["id"], "2099-01-01T00:00:00+00:00"))
+    monkeypatch.setattr(school_admin, "_reindex", main.rebuild_index)
+    start = threading.Barrier(2)
+
+    def concurrent_upload(index):
+        # A client per worker gives each request its own event loop.
+        worker = TestClient(main.app, raise_server_exceptions=False)
+        try:
+            start.wait(timeout=5)
+            return worker.post(routes[index], headers={
+                "X-Admin-Key": "test-key", "Authorization": "Bearer " + token},
+                data={"policy_key": "parallel-fees", "title": "Upload " + str(index),
+                      "effective_date": date.today().isoformat()},
+                files={"file": ("fees.txt", b"Fictional school policy content for simultaneous uploads.")})
+        finally:
+            worker.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(concurrent_upload, range(2)))
+    assert [response.status_code for response in responses] == [201, 201], [r.text for r in responses]
+    assert sorted(response.json()["version"] for response in responses) == [1, 2]
+    with main.db() as connection:
+        rows = connection.execute(
+            "SELECT version,title,status FROM policy_versions WHERE policy_key='parallel-fees' ORDER BY version"
+        ).fetchall()
+        assert [row["version"] for row in rows] == [1, 2]
+        assert {row["title"] for row in rows} == {"Upload 0", "Upload 1"}
+        assert all(row["status"] == "draft" for row in rows)

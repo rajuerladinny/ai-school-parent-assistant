@@ -76,6 +76,8 @@ python -m pytest -q
 
 ## Policy management (versioned approvals)
 
+Policy uploads allocate the next version and insert the draft in one transaction. Both the legacy demo and school-admin upload APIs use the same allocator. SQLite takes an immediate write transaction; PostgreSQL locks the school's registry row until commit or rollback, including for the first version. Uploads within a school serialize briefly during allocation; different schools use different row locks. Failed transactions release the lock and do not consume a policy version. This does not enable production operation.
+
 The admin dashboard now includes **Policy versions**. Upload a policy PDF/DOCX/TXT/MD with a stable key (for example `fee-policy`), a title, and a YYYY-MM-DD effective date. Every upload creates a new **draft** version. An administrator must approve or reject it; rejected versions stay in the history but are not searchable. Approved future versions become applicable on their effective date; the system rechecks the date when parents ask questions and rebuilds the vector index when the day changes. The latest *effective, approved* version of each policy key is indexed. Version history is retained in SQLite.
 
 API: `POST /api/policies` (multipart, admin), `GET /api/policies` (admin), `POST /api/policies/{id}/review` (admin JSON `{\"approve\":true}`), `GET /api/policies/active` (public metadata).
