@@ -9,6 +9,32 @@ from urllib.parse import urlsplit,urlunsplit
 import pytest
 
 
+def test_postgres_index_sources_keep_policy_tenants(postgres_database, monkeypatch):
+    from datetime import date
+    from app import main
+
+    monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    expected=set()
+    with main.db() as connection:
+        for school_id in (1,2,3):
+            connection.execute("INSERT INTO schools(id,slug,name,active) VALUES(?,?,?,?)",
+                (school_id,"school-" + str(school_id),"Fictional school",school_id != 3))
+            row=connection.execute(
+                "INSERT INTO policy_versions(school_id,policy_key,version,title,filename,content,status,effective_date) "
+                "VALUES(?,'shared-fees',1,'Fees','fees.txt','Fictional school fee policy','approved',?) RETURNING id",
+                (school_id,date.today())).fetchone()
+            if school_id != 3:
+                expected.add(("policy-" + str(row["id"]),school_id))
+            connection.execute("INSERT INTO knowledge(school_id,topic,answer,source) VALUES(?,'Bus','Fictional bus route','Transport')",(school_id,))
+            connection.execute("INSERT INTO documents(school_id,filename,title,content) VALUES(?,'library.txt','Library','Fictional library returns')",(school_id,))
+    records=main.records_for_index()
+    assert {(r["id"],r["school_id"]) for r in records if r["id"].startswith("policy-")} == expected
+    assert all(r["school_id"] != 3 for r in records)
+    for school_id in (1,2):
+        assert {r["id"].split("-")[0] for r in records if r["school_id"] == school_id} == {"faq","doc","policy"}
+
+
 @pytest.mark.parametrize("routes", [
     ("/api/policies", "/api/policies"),
     ("/api/school-admin/policies", "/api/school-admin/policies"),
