@@ -91,3 +91,13 @@ def test_invalid_redis_url_fails_closed(monkeypatch, url):
     with pytest.raises(HTTPException) as error:
         shared_login_limit.check("staff", "alice", "192.0.2.1")
     assert error.value.status_code == 503
+
+
+def test_plaintext_redis_refused_even_with_insecure_override_in_production(monkeypatch):
+    monkeypatch.setenv('SCHOOL_ENV', 'production')
+    monkeypatch.setenv('SCHOOL_RATE_LIMIT_REDIS_URL', 'redis://localhost:6379/0')
+    monkeypatch.setenv('SCHOOL_RATE_LIMIT_KEY_SECRET', 's' * 40)
+    monkeypatch.setenv('SCHOOL_ALLOW_INSECURE_REDIS', '1')
+    with pytest.raises(HTTPException) as error:
+        shared_login_limit.check('parent', 'alice', '127.0.0.1')
+    assert error.value.status_code == 503

@@ -35,13 +35,22 @@ def test_postgres_index_sources_keep_policy_tenants(postgres_database, monkeypat
         assert {r["id"].split("-")[0] for r in records if r["school_id"] == school_id} == {"faq","doc","policy"}
 
 
+@pytest.fixture(params=["owner", "restricted-login"])
+def policy_upload_dsn(request, postgres_database, postgres_runtime_login):
+    if request.param == "restricted-login":
+        with postgres_runtime_login(postgres_database) as restricted:
+            yield restricted
+    else:
+        yield postgres_database
+
+
 @pytest.mark.parametrize("routes", [
     ("/api/policies", "/api/policies"),
     ("/api/school-admin/policies", "/api/school-admin/policies"),
     ("/api/policies", "/api/school-admin/policies"),
 ])
 @pytest.mark.parametrize("existing_version", [0, 3])
-def test_concurrent_postgres_policy_uploads_allocate_distinct_versions(postgres_database, monkeypatch, routes, existing_version):
+def test_concurrent_postgres_policy_uploads_allocate_distinct_versions(postgres_database, policy_upload_dsn, monkeypatch, routes, existing_version):
     """Hold the school row so both requests overlap before their inserts commit."""
     import hashlib
     import time
@@ -52,10 +61,12 @@ def test_concurrent_postgres_policy_uploads_allocate_distinct_versions(postgres_
 
     monkeypatch.setenv("SCHOOL_ENV", "test")
     monkeypatch.setenv("SCHOOL_DATABASE_BACKEND", "postgres")
-    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", postgres_database)
+    monkeypatch.setenv("SCHOOL_POSTGRES_DSN", policy_upload_dsn)
     monkeypatch.setenv("SCHOOL_ADMIN_KEY", "concurrent-policy-test-key")
     monkeypatch.setattr(database_config, "validate_configuration", lambda: "postgres")
     monkeypatch.setattr(main, "rebuild_index", lambda: False)
+    with psycopg.connect(policy_upload_dsn) as runtime:
+        runtime_user = runtime.execute("SELECT current_user").fetchone()[0]
     token = "concurrent-policy-test-token"
     with psycopg.connect(postgres_database) as connection:
         connection.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School')")
@@ -94,7 +105,8 @@ def test_concurrent_postgres_policy_uploads_allocate_distinct_versions(postgres_
                 while time.monotonic() < deadline:
                     waiting = monitor.execute(
                         "SELECT COUNT(*) FROM pg_stat_activity "
-                        "WHERE datname=current_database() AND wait_event_type='Lock'"
+                        "WHERE datname=current_database() AND wait_event_type='Lock' AND usename=%s",
+                        (runtime_user,)
                     ).fetchone()[0]
                     if waiting >= 2:
                         break
@@ -326,26 +338,31 @@ def test_account_creation_duplicate_username(backend, path, table, request, tmp_
         assert following.status_code == 201, following.text
 
 
-def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
+@pytest.mark.parametrize("database_identity", ["owner", "restricted-login"])
+def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch, postgres_runtime_login, database_identity):
     dsn=os.getenv("TEST_POSTGRES_URL")
     if not dsn:pytest.skip("Requires TEST_POSTGRES_URL")
     import psycopg
     from fastapi.testclient import TestClient
     from app import main,database_config
-    from scripts.postgres_bootstrap import initialize_empty
+    from scripts.postgres_migrations import migrate
+    from contextlib import ExitStack
     parts=urlsplit(dsn)
     name="school_api_"+uuid.uuid4().hex[:12]
     admin=urlunsplit((parts.scheme,parts.netloc,"/postgres",parts.query,parts.fragment))
     target=urlunsplit((parts.scheme,parts.netloc,"/"+name,parts.query,parts.fragment))
     with psycopg.connect(admin,autocommit=True) as root:
         root.execute(f'CREATE DATABASE "{name}"')
+    runtime_connections = ExitStack()
     try:
-        initialize_empty(target)
+        migrate(target)
+        runtime_dsn = (runtime_connections.enter_context(postgres_runtime_login(target))
+                       if database_identity == "restricted-login" else target)
         with psycopg.connect(target) as c:
             c.execute("INSERT INTO schools(id,slug,name) VALUES(1,'demo','Demo School')")
             c.execute("INSERT INTO knowledge(school_id,topic,answer,source) VALUES(1,'Timings','9 AM','Handbook')")
         monkeypatch.setenv("SCHOOL_DATABASE_BACKEND","postgres")
-        monkeypatch.setenv("SCHOOL_POSTGRES_DSN",target)
+        monkeypatch.setenv("SCHOOL_POSTGRES_DSN",runtime_dsn)
         monkeypatch.setenv("SCHOOL_ADMIN_KEY","test-key-for-integration")
         monkeypatch.setattr(database_config,"validate_configuration",lambda:"postgres")
         monkeypatch.setattr(main,"rebuild_index",lambda:False)
@@ -839,5 +856,6 @@ def test_fastapi_postgres_health_and_school_scoped_read(monkeypatch):
             assert client.post("/api/staff-auth/logout",headers=staff_headers).status_code==200
             assert client.get("/api/staff-auth/me",headers=staff_headers).status_code==401
     finally:
+        runtime_connections.close()
         with psycopg.connect(admin,autocommit=True) as root:
             root.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')

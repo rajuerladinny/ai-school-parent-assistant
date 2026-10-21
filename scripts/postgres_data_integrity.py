@@ -25,4 +25,13 @@ def verify_data(source, restored):
         if "id" in columns and sequence_state(source, table) != sequence_state(restored, table):
             raise RuntimeError(f"Restore sequence mismatch in {table}")
         counts[table] = len(copied)
+    ledger = "public.school_schema_migrations"
+    original_ledger = source.execute("SELECT to_regclass(%s)", (ledger,)).fetchone()[0]
+    restored_ledger = restored.execute("SELECT to_regclass(%s)", (ledger,)).fetchone()[0]
+    if bool(original_ledger) != bool(restored_ledger):
+        raise RuntimeError("Restore migration-history presence mismatch")
+    if original_ledger:
+        query = "SELECT version,filename,checksum,applied_at FROM public.school_schema_migrations ORDER BY version"
+        if source.execute(query).fetchall() != restored.execute(query).fetchall():
+            raise RuntimeError("Restore migration-history data mismatch")
     return counts

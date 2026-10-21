@@ -64,6 +64,22 @@ def test_migration_dry_run_preserves_sequences(populated_sqlite, postgres_databa
     assert sequence_states(postgres_database) == before
 
 
+def test_sqlite_migration_can_adopt_version_history_without_changing_records(populated_sqlite, postgres_database):
+    import psycopg
+    from scripts.migrate_sqlite_to_postgres import migrate, TABLES
+    from scripts.postgres_migrations import adopt_existing, migrate as upgrade
+
+    migrate(populated_sqlite, postgres_database, dry_run=False)
+    with psycopg.connect(postgres_database) as connection:
+        before = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in TABLES}
+    sequences = sequence_states(postgres_database)
+    assert adopt_existing(postgres_database) == 2
+    assert upgrade(postgres_database) == 0
+    with psycopg.connect(postgres_database) as connection:
+        assert {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in TABLES} == before
+    assert sequence_states(postgres_database) == sequences
+
+
 def test_migration_rejects_invalid_boolean(populated_sqlite, postgres_database):
     import sqlite3
     from scripts.migrate_sqlite_to_postgres import migrate
