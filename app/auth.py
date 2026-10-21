@@ -70,14 +70,14 @@ def create_parent(item:CreateParent,x_admin_key:str|None=Header(None)):
     _admin(x_admin_key)
     salt=secrets.token_hex(16)
     with _db() as c:
-        try:
-            school=c.execute("SELECT id FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone()
-            if not school:raise HTTPException(404,"School not found")
-            cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?) RETURNING id",
-                          (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
-        except __import__("sqlite3").IntegrityError:
+        school=c.execute("SELECT id FROM schools WHERE id=? AND active=TRUE",(item.school_id,)).fetchone()
+        if not school:raise HTTPException(404,"School not found")
+        cur=c.execute("INSERT INTO parent_accounts(username,display_name,salt,password_hash,school_id) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING id",
+                      (item.username.lower(),item.display_name.strip(),salt,digest(item.password,salt),item.school_id))
+        row=cur.fetchone()
+        if row is None:
             raise HTTPException(409,"Username already exists")
-        return {"id":cur.fetchone()["id"],"username":item.username.lower(),"role":"parent"}
+        return {"id":row["id"],"username":item.username.lower(),"role":"parent"}
 
 @router.post("/login")
 def login(item:Credentials,request:Request):
