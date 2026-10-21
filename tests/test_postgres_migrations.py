@@ -6,6 +6,59 @@ import pytest
 from scripts.postgres_migrations import DIRECTORY, migrate
 
 
+def test_adoption_preserves_all_data_and_sequence_state(postgres_database):
+    import psycopg
+    from scripts.postgres_migrations import adopt_existing
+    from scripts.migrate_sqlite_to_postgres import TABLES
+    from scripts.postgres_data_integrity import sequence_state
+
+    dsn = postgres_database
+    with psycopg.connect(dsn) as connection:
+        school = connection.execute("INSERT INTO schools(slug,name) VALUES('adopt','Fictional school') RETURNING id").fetchone()[0]
+        connection.execute("INSERT INTO knowledge(school_id,topic,answer,source) VALUES(%s,'Bus','Fictional answer','Handbook')", (school,))
+    def snapshot():
+        with psycopg.connect(dsn) as connection:
+            rows = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in TABLES}
+            sequences = {table: sequence_state(connection, table) for table, columns in TABLES.items() if "id" in columns}
+        return rows, sequences
+    before = snapshot()
+    assert adopt_existing(dsn) == 2
+    assert snapshot() == before
+    assert migrate(dsn) == 0
+    with pytest.raises(RuntimeError, match="history already exists"):
+        adopt_existing(dsn)
+
+
+@pytest.mark.parametrize("drift", [
+    "ALTER TABLE knowledge ALTER COLUMN answer DROP NOT NULL",
+    "ALTER TABLE policy_versions DROP CONSTRAINT policy_versions_school_id_policy_key_version_key",
+    "ALTER TABLE schools DISABLE TRIGGER trg_revoke_school_sessions",
+    "CREATE OR REPLACE FUNCTION revoke_school_sessions_on_disable() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END; $$",
+    "ALTER SEQUENCE schools_id_seq INCREMENT BY 2",
+    "CREATE TABLE unexpected_table(id INT)",
+    "ALTER TABLE knowledge ADD COLUMN unexpected_column TEXT",
+    "CREATE TYPE unexpected_type AS ENUM ('unexpected')",
+    "CREATE RULE unexpected_rule AS ON UPDATE TO knowledge DO INSTEAD NOTHING",
+])
+def test_adoption_rejects_schema_drift_without_ledger_or_reference_objects(postgres_database, drift):
+    import psycopg
+    from scripts.postgres_migrations import adopt_existing
+
+    with psycopg.connect(postgres_database) as connection:
+        connection.execute(drift)
+    with pytest.raises(RuntimeError, match="differs from reviewed baseline"):
+        adopt_existing(postgres_database)
+    with psycopg.connect(postgres_database) as connection:
+        assert connection.execute("SELECT to_regclass('public.school_schema_migrations')").fetchone()[0] is None
+        assert connection.execute("SELECT COUNT(*) FROM pg_namespace WHERE nspname LIKE 'school_baseline_%'").fetchone()[0] == 0
+
+
+def test_adoption_refuses_empty_database(postgres_empty_database):
+    from scripts.postgres_migrations import adopt_existing
+    with pytest.raises(RuntimeError, match="requires an existing schema"):
+        adopt_existing(postgres_empty_database)
+
+
 def test_fresh_migration_is_repeatable_and_valid(postgres_empty_database):
     import psycopg
     from scripts.postgres_bootstrap import validate

@@ -22,8 +22,9 @@ The migration runner applies numbered SQL files in order under one transaction
 and advisory lock. A ledger records filenames, versions, checksums and timestamps.
 Repeat execution does nothing. Changed, missing or reordered applied migrations
 fail closed. A failed migration rolls back both DDL and ledger updates. Existing
-untracked schemas are refused; the older bootstrap and SQLite migration tools
-still produce untracked schemas and need a separately reviewed adoption plan.
+untracked schemas are refused by the normal runner. The older bootstrap and
+SQLite migration tools produce untracked schemas; adopt those explicitly using
+the procedure below before running upgrades.
 Keep applied SQL files immutable; add a new numbered file for subsequent changes.
 
 The permission tool creates a fresh NOLOGIN group. It grants schema USAGE,
@@ -68,7 +69,6 @@ traffic switching, and record the exact backup and application versions.
 ## Remaining acceptance
 
 - Runtime-login credentials and effective permission review in staging.
-- Adoption path for existing bootstrap/SQLite-migrated databases.
 - Restored-database application startup without patched readiness checks.
 - Successful-release rollback drill and measured recovery objectives.
 
@@ -87,3 +87,33 @@ login before releasing it. Both uploads must then return distinct consecutive
 versions while leaving the other school's policy unchanged. Administrative
 monitoring and test data setup use the owner DSN; HTTP requests use the selected
 runtime DSN. Production startup checks remain patched only within these tests.
+
+## Adopt an existing untracked PostgreSQL database
+
+Take and verify a backup first. Stop application writers and administrative DDL
+for the maintenance window, then use the schema owner DSN:
+
+```text
+python -m scripts.postgres_migrations --adopt-existing
+python -m scripts.postgres_migrations
+```
+
+Adoption supports only the reviewed 001+002 baseline, including databases
+populated through the SQLite migration tool. It takes the migration advisory
+lock and exclusive table locks with a five-second lock timeout. On the same
+connection it builds a temporary reference schema from the checked-in SQL and
+compares table/column definitions, constraints, indexes, trigger definitions and
+enabled state, function definitions, owned sequence definitions, row-security
+policies and extra types. Unknown or altered objects fail closed. Resolve drift
+through a reviewed migration; do not alter the checker to bypass a mismatch.
+Other schemas, grants, ownership and operational credentials require separate
+review; this structural check does not certify existing record quality.
+
+Only after comparison succeeds does adoption create the ledger and record the
+baseline checksums. It never replays baseline SQL on application tables or
+changes their records or sequence counters. The reference schema is removed,
+and all changes roll back on failure. Existing ledgers are refused; subsequent
+commands must use the normal runner. Tests cover bootstrap and populated
+SQLite-migrated databases, preserving every application value and sequence state.
+Keep other administrators from changing functions or creating objects during
+adoption; table locks do not prevent all independent DDL.
