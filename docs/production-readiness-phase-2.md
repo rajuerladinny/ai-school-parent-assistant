@@ -10,7 +10,7 @@ policy concurrency, restore integrity and tenant indexing fixes are prerequisite
 
 | Workstream | Evidence already available | Remaining acceptance |
 | --- | --- | --- |
-| PostgreSQL | Isolated schema, adapter, HTTP and restore tests; restricted permission-group tests; checksum migration ledger and failed-upgrade rollback | Restricted-login HTTP acceptance, existing-schema adoption, successful-release rollback, startup against restored database without patched release gates |
+| PostgreSQL | Isolated schema, adapter, HTTP and restore tests; restricted-login HTTP workflow; checksum migration ledger, failed-upgrade rollback and versioned restore verification | Restricted-login concurrent writes, existing-schema adoption, successful-release rollback, startup against restored database without patched release gates |
 | Connection recovery | Real backend termination test verifies transaction rollback and a successful fresh connection | Staging outage and recovery under concurrent traffic |
 | Identity | Tenant-scoped login, disabled-account/session checks, school-code login | Choose managed provider, admin MFA, recovery and role lifecycle, audited break-glass procedure |
 | Network | Production import and request checks reject plaintext Redis even with the legacy override | Trusted proxy/client-IP configuration, authenticated TLS Redis across multiple workers, outage drill |

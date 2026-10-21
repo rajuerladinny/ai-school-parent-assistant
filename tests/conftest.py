@@ -1,6 +1,7 @@
 """Isolated PostgreSQL fixtures; TEST_POSTGRES_URL supplies server access only."""
 import os
 import uuid
+from contextlib import contextmanager
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
@@ -36,6 +37,41 @@ def postgres_database(postgres_empty_database):
 
     initialize_empty(postgres_empty_database)
     return postgres_empty_database
+
+
+@pytest.fixture
+def postgres_runtime_login():
+    """Temporary real LOGIN with only the application permission group."""
+    @contextmanager
+    def login(dsn):
+        import psycopg
+        from psycopg import sql
+        from psycopg.conninfo import make_conninfo
+        from scripts.postgres_runtime_role import provision
+
+        group = "school_group_" + uuid.uuid4().hex
+        user = "school_login_" + uuid.uuid4().hex
+        password = uuid.uuid4().hex
+        provision(dsn, group)
+        try:
+            with psycopg.connect(dsn) as owner:
+                owner.execute(sql.SQL(
+                    "CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB "
+                    "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                ).format(sql.Identifier(user), sql.Literal(password)))
+                owner.execute(sql.SQL("GRANT {} TO {}").format(sql.Identifier(group), sql.Identifier(user)))
+            restricted = make_conninfo(dsn, user=user, password=password, options="")
+            with psycopg.connect(restricted) as connection:
+                assert connection.execute("SELECT current_user, session_user").fetchone() == (user, user)
+            yield restricted
+        finally:
+            with psycopg.connect(dsn, autocommit=True) as owner:
+                if owner.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (user,)).fetchone():
+                    owner.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(user)))
+                    owner.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(user)))
+                owner.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(group)))
+                owner.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(group)))
+    return login
 
 
 @pytest.fixture

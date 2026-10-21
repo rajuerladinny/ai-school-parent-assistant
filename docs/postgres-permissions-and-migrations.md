@@ -38,8 +38,12 @@ The deployment owner must separately create a restricted login, assign only
 this permission group and verify its effective privileges. Do not give that
 login membership in the owner, migration or administrative roles. The application
 DSN must authenticate as this login; the migration DSN must never be substituted.
-The tests use SET ROLE on a disposable administrative connection to exercise
-PostgreSQL's effective privilege checks, not real credential provisioning.
+The permission-denial tests use SET ROLE to check effective privileges. The
+HTTP acceptance suite additionally connects as a temporary restricted LOGIN,
+asserts both current_user and session_user match that login, and exercises
+parent/staff authentication, content, policy review, notifications, staff
+workflows and tenant isolation. CI's PostgreSQL service uses password
+authentication; the local disposable cluster uses loopback-only trust auth.
 The permission group is database-wide and is not a substitute for application
 tenant authorization. PostgreSQL PUBLIC privileges are additive; deployments
 must also review inherited privileges and executable functions. See the official
@@ -63,8 +67,15 @@ traffic switching, and record the exact backup and application versions.
 
 ## Remaining acceptance
 
-- Real runtime-login authentication and permission review in staging.
-- Full HTTP workflow suite under the restricted login, including concurrent writes.
+- Runtime-login credentials and effective permission review in staging.
+- Concurrent HTTP writes under the restricted login.
 - Adoption path for existing bootstrap/SQLite-migrated databases.
 - Restored-database application startup without patched readiness checks.
 - Successful-release rollback drill and measured recovery objectives.
+
+The versioned restore drill uses a separate empty database and real pg_dump /
+pg_restore. It checks application values, sequence state and migration history,
+then confirms the restored migration runner is a no-op. It reprovisions a
+restricted login and verifies reads, writes and denied ledger access. Restore
+comparison now rejects missing or altered ledger rows, including timestamps.
+This validates database recovery; it does not bypass the application startup gate.
