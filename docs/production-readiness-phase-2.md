@@ -10,7 +10,7 @@ policy concurrency, restore integrity and tenant indexing fixes are prerequisite
 
 | Workstream | Evidence already available | Remaining acceptance |
 | --- | --- | --- |
-| PostgreSQL | Isolated schema, adapter, HTTP, migration and real restore tests | Least-privileged runtime role, versioned upgrade/rollback, startup against restored database without patched release gates |
+| PostgreSQL | Isolated schema, adapter, HTTP and restore tests; restricted permission-group tests; checksum migration ledger and failed-upgrade rollback | Restricted-login HTTP acceptance, existing-schema adoption, successful-release rollback, startup against restored database without patched release gates |
 | Connection recovery | Real backend termination test verifies transaction rollback and a successful fresh connection | Staging outage and recovery under concurrent traffic |
 | Identity | Tenant-scoped login, disabled-account/session checks, school-code login | Choose managed provider, admin MFA, recovery and role lifecycle, audited break-glass procedure |
 | Network | Production import and request checks reject plaintext Redis even with the legacy override | Trusted proxy/client-IP configuration, authenticated TLS Redis across multiple workers, outage drill |
@@ -28,6 +28,11 @@ policy concurrency, restore integrity and tenant indexing fixes are prerequisite
 - Keep this PR draft until implementation and evidence are complete. Merge and deployment remain separate decisions.
 
 ## Current batch
+
+The database follow-up adds restricted runtime permission provisioning and a
+transactional checksum migration runner. See
+[permissions and migration acceptance](postgres-permissions-and-migrations.md)
+for commands, boundaries and remaining staging acceptance.
 
 - Synchronize the existing draft with main through PR #36.
 - Reject the insecure Redis override consistently at production startup and login.
