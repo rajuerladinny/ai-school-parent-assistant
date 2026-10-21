@@ -164,7 +164,9 @@ FAQ, uploaded documents and policy versions now carry `school_id`, existing reco
 
 ## Experimental SQLite to PostgreSQL transfer utility
 
-`scripts/migrate_sqlite_to_postgres.py` can copy a limited set of foundational tables from a **quiesced**, backed-up SQLite database to an **empty** PostgreSQL schema. It defaults to a rollback-only dry run; `--apply` commits after count checks. This utility is **not a complete migration**: it does not yet transfer staff workflows, all session/token state, conflict history or vector embeddings, nor does it change the application's SQLite runtime. Do not use with real school data until all tables and foreign keys are covered, end-to-end checks pass, and an approved backup/rollback procedure is tested. ChromaDB is a separate index and must be rebuilt from approved, tenant-scoped source records after a migration.
+`scripts/migrate_sqlite_to_postgres.py` copies the 12 application tables listed in `TABLES`, including staff workflows, sessions, receipts and conflict history, from a **quiesced**, backed-up SQLite database into an **empty** initialized PostgreSQL schema. It defaults to a rollback-only dry run; `--apply` commits only after row counts, every copied column and relationship checks pass. The source is opened read-only with a consistent snapshot, including filenames containing URI-special characters. Boolean flags must be 0 or 1; timezone-aware timestamps preserve their instant, and naive SQLite timestamps are interpreted as UTC. Identity sequence resets are transactional, so dry runs and failures leave no sequence changes.
+
+The migration takes exclusive locks on the target application tables and requires ownership of their identity sequences. Populated unsupported tables (including retired anonymous notification records) and unexpected source columns require an explicit archive or migration decision; they are never silently discarded. Failed transfers roll back and can be retried against the empty target. This does not switch the API runtime or authorize real-school migration. ChromaDB remains a separate index and must be rebuilt from approved, tenant-scoped records.
 
 
 ## Staff identity milestone (not production authentication)
@@ -174,7 +176,7 @@ Individual school-linked `school_admin` and `staff` accounts can be provisioned 
 
 ## Backup and restore verification foundation
 
-`scripts/verify_postgres_restore.py` runs `pg_dump`, restores into a **separate empty disposable PostgreSQL database**, and compares row counts for core tables. Requires PostgreSQL client tools and `psycopg`. The script refuses identical source/restore DSN strings. **Do not pass two different DSN strings that refer to the same database.** This is a utility, not evidence of a completed recovery drill: the restore has not yet been run against the actual application's full schema and data. Production recovery also needs encrypted offsite storage, tested point-in-time recovery, retention, restore-time objectives, RAG/Chroma reindexing, and documented access controls.
+Both `scripts/verify_postgres_restore.py` and `scripts/postgres_restore_verify.py` run the same `pg_dump`/`pg_restore` drill into a **separate empty disposable PostgreSQL database**, validate required schema/security triggers, and compare every application column, row count and identity sequence state. The restore runs in one transaction. Both tools reject connections that resolve to the same database or a populated target schema. Keep the source quiesced during the dump and comparison. Requires PostgreSQL client tools and `psycopg`. Fictional-data integration tests populate all 12 migrated tables and detect content or sequence changes even when counts match. Production recovery still needs encrypted offsite storage, point-in-time recovery, retention, restore-time objectives, RAG reindexing and operational approval.
 
 
 ## PostgreSQL runtime adapter — incremental milestone

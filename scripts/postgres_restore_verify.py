@@ -8,9 +8,18 @@ import os
 import subprocess
 import tempfile
 
+if __name__ == "__main__" and not __package__:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.postgres_bootstrap import validate
+from scripts.postgres_data_integrity import verify_data
+
 def verify(source_dsn, restore_dsn):
-    from scripts.postgres_bootstrap import validate
     import psycopg
+    if not source_dsn or not restore_dsn:
+        raise ValueError("Source and disposable restore DSNs are required")
     if source_dsn == restore_dsn:
         raise ValueError("Source and restore DSNs must differ")
     with psycopg.connect(source_dsn) as source, psycopg.connect(restore_dsn) as target:
@@ -30,22 +39,11 @@ def verify(source_dsn, restore_dsn):
         backup=os.path.join(directory,"backup.dump")
         subprocess.run(["pg_dump","--format=custom","--no-owner","--no-acl",
                         "--file",backup,"--dbname",source_dsn],check=True)
-        subprocess.run(["pg_restore","--no-owner","--no-acl","--exit-on-error",
+        subprocess.run(["pg_restore","--no-owner","--no-acl","--exit-on-error","--single-transaction",
                         "--dbname",restore_dsn,backup],check=True)
     validate(restore_dsn)
     with psycopg.connect(source_dsn) as source, psycopg.connect(restore_dsn) as restored:
-        tables=("schools","parent_accounts","parent_sessions","staff_accounts",
-                "staff_sessions","knowledge","documents","policy_versions",
-                "escalations","escalation_events","parent_notification_reads",
-                "knowledge_conflicts")
-        counts={}
-        for table in tables:
-            original=source.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            copied=restored.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            if original != copied:
-                raise RuntimeError(f"Restore row-count mismatch in {table}")
-            counts[table]=copied
-    return counts
+        return verify_data(source, restored)
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__)
