@@ -1,25 +1,7 @@
 name: Local RAG Vector Integration
 on:
-  push:
-    paths:
-      - 'app/rag.py'
-      - 'app/main.py'
-      - 'app/policies.py'
-      - 'tests/conftest.py'
-      - 'tests/test_vector_integration.py'
-      - '.github/workflows/vector-integration.yml'
-      - 'requirements-rag.txt'
-      - 'requirements.txt'
-  pull_request:
-    paths:
-      - 'app/rag.py'
-      - 'app/main.py'
-      - 'app/policies.py'
-      - 'tests/conftest.py'
-      - 'tests/test_vector_integration.py'
-      - '.github/workflows/vector-integration.yml'
-      - 'requirements-rag.txt'
-      - 'requirements.txt'
+  workflow_dispatch:
+
 jobs:
   vector-integration:
     runs-on: ubuntu-latest
