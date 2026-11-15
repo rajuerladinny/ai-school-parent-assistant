@@ -1,5 +1,7 @@
 name: PostgreSQL Schema Integration
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+
 jobs:
   postgres-schema:
     runs-on: ubuntu-latest
