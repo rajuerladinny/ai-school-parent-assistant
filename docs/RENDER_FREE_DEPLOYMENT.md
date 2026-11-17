@@ -5,10 +5,11 @@
 ## What this deploys
 
 - One Python/FastAPI web service using `render.yaml`, with the free Render instance.
-- Lightweight requirements only: sample FAQ answers and keyword fallback. ChromaDB, Sentence Transformers, and Ollama are **not installed**.
+- **Public demo mode** (`SCHOOL_DEMO_MODE=1`): fictional Sunrise Valley content is loaded automatically, the staff portal is read-only, and visitor questions are never stored.
+- **Semantic search** with ChromaDB's ONNX build of `all-MiniLM-L6-v2` (`requirements-demo.txt`, `RAG_EMBEDDER=onnx`). No PyTorch, so it fits the free instance's memory (about 300–370 MB in local tests). Ollama is not installed, so answers quote the most relevant sentences.
 - SQLite at `/tmp/school-demo.db`, which is **ephemeral**. All accounts, tickets, policies and uploads may disappear on restart, redeploy or spin-down. Do not treat it as persistent storage.
-- An automatically generated `SCHOOL_ADMIN_KEY` kept in Render's environment settings. Never commit or paste the key into source control.
-- Publicly accessible demo UI and API. Keep the admin key secret and avoid storing sensitive data.
+- An automatically generated `SCHOOL_ADMIN_KEY`. In demo mode it is shown on the staff unlock screen on purpose, because every staff change is blocked.
+- Publicly accessible demo UI and API, with fictional data only.
 
 ## One-time deployment
 
@@ -16,13 +17,13 @@
 2. Open **New → Blueprint**, select the repository and the `main` branch (after this deployment PR is merged).
 3. Render reads `render.yaml`. Review the service name, `free` plan, generated `SCHOOL_ADMIN_KEY`, and click **Apply/Deploy**. If Render's UI shows a paid plan, do not confirm it; check the plan selection and your account eligibility.
 4. Wait for the deploy to succeed. Open the generated `https://...onrender.com` URL; the sample school UI should load.
-5. Open `https://YOUR-SERVICE.onrender.com/api/health` and verify `status: ok`. `vector_search_enabled: false` is expected on the free lightweight deployment.
-6. For admin testing, find `SCHOOL_ADMIN_KEY` in Render **Environment** and copy it only into the admin key field of your demo. Do not share it in chat, screenshots, logs, or public links.
+5. Open `https://YOUR-SERVICE.onrender.com/api/health` and verify `status: ok`, `vector_search_enabled: true` and `demo_mode: true`.
+6. Open the **Staff portal** and click **Use demo key**. Confirm that changes show the read-only message.
 7. Test the sample question “What are school timings?” and a made-up unanswered question. Test parent accounts with invented usernames/passwords only.
 
 ## Free tier trade-offs
 
-Render free services may spin down after inactivity and take time to wake up. Free instance availability, limits and pricing may change; verify Render's current pricing before enabling the service. The free filesystem is ephemeral. Database changes **will not reliably survive** restarts/redeploys, and multiple instances would not share SQLite data. No vector model is loaded; the demo uses keyword FAQ fallback. The public app is not suitable for real school users.
+Render free services may spin down after inactivity and take time to wake up. Free instance availability, limits and pricing may change; verify Render's current pricing before enabling the service. The free filesystem is ephemeral. Database changes **will not reliably survive** restarts/redeploys, and multiple instances would not share SQLite data. The ONNX embedding model loads at startup; if the instance is restarted it is downloaded again if Render did not keep the build cache. The public app is not suitable for real school users.
 
 ## Before a real pilot
 

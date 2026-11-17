@@ -3,14 +3,24 @@ services:
     name: school-parent-assistant-demo
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    # Lightweight semantic search: ChromaDB's ONNX all-MiniLM-L6-v2 (no PyTorch),
+    # which fits the free instance's memory. The model is fetched during the build.
+    buildCommand: >-
+      pip install -r requirements-demo.txt &&
+      python -c "from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2 as M; M()(['warm up'])"
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
+      # Public, read-only demo with fictional data. The generated key is shown on
+      # the staff unlock screen because demo mode blocks every staff change.
+      - key: SCHOOL_DEMO_MODE
+        value: "1"
       - key: SCHOOL_ADMIN_KEY
         generateValue: true
+      - key: RAG_EMBEDDER
+        value: onnx
       - key: SCHOOL_DB
         value: /tmp/school-demo.db
       - key: RAG_VECTOR_PATH

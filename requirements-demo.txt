@@ -1,0 +1,8 @@
+# Lightweight semantic search for small free hosting (for example Render Free).
+# Uses ChromaDB's bundled ONNX build of all-MiniLM-L6-v2, so PyTorch and
+# sentence-transformers are not needed. See app/rag.py (_OnnxEmbedder).
+-r requirements.txt
+chromadb>=0.5,<2
+pypdf>=5,<7
+python-docx>=1.1,<2
+httpx>=0.27,<1

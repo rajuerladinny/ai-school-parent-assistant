@@ -148,3 +148,11 @@ def test_best_sentences_quotes_relevant_lines_without_headings(monkeypatch):
     assert answer == "Sunrise Valley is a nut-free school, so please do not send food containing nuts."
     assert "#" not in rag.best_sentences("library hours", [passage])
     assert rag.best_sentences("anything", ["# Only a heading"]) == ""
+
+
+def test_onnx_embedder_used_when_requested(monkeypatch):
+    from app import rag
+    monkeypatch.setenv("RAG_EMBEDDER", "onnx")
+    created = []
+    monkeypatch.setattr(rag, "_OnnxEmbedder", lambda: created.append(1) or "onnx-embedder")
+    assert rag._embedder() == "onnx-embedder" and created == [1]

@@ -159,9 +159,15 @@ Open http://localhost:7860. The image runs in **public demo mode** with semantic
 
 The Docker image keeps its database in `/tmp`, so every restart begins with fresh demo data.
 
+### Deploy free on Render
+
+`render.yaml` deploys the public demo on Render's free plan, with lightweight ONNX semantic search that fits its memory. See [docs/RENDER_FREE_DEPLOYMENT.md](docs/RENDER_FREE_DEPLOYMENT.md).
+
 ### Deploy to a Hugging Face Space
 
-1. Create a free Space on huggingface.co with **SDK: Docker**.
+Docker Spaces currently need a paid Hugging Face plan.
+
+1. Create a Space on huggingface.co with **SDK: Docker**.
 2. From this repository, in Git Bash: `scripts/deploy_hf_space.sh <hf-username>/<space-name>`
 3. Git asks for your Hugging Face username and an access token with write permission.
 
@@ -349,4 +355,4 @@ Run `python scripts/audit_sqlite_sql.py` to list SQLite-only PRAGMA statements, 
 
 ## Free online demo deployment (Render)
 
-The repository includes a `render.yaml` Blueprint for a **free, fictional-data-only** FastAPI deployment. See [Render Free deployment instructions](docs/RENDER_FREE_DEPLOYMENT.md) for setup, verification and limitations. The free deployment uses keyword FAQ fallback rather than the optional local embedding model. SQLite lives on an **ephemeral** filesystem, so accounts and changes can disappear. Do **not** use real parent or student data. Deployment must be authorized and initiated in your own Render account; adding the Blueprint does not deploy automatically.
+The repository includes a `render.yaml` Blueprint for a **free, fictional-data-only** FastAPI deployment. See [Render Free deployment instructions](docs/RENDER_FREE_DEPLOYMENT.md) for setup, verification and limitations. It runs in public demo mode with lightweight ONNX semantic search (no PyTorch), which fits the free instance. SQLite lives on an **ephemeral** filesystem, so accounts and changes can disappear. Do **not** use real parent or student data. Deployment must be authorized and initiated in your own Render account; adding the Blueprint does not deploy automatically.

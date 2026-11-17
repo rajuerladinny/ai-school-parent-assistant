@@ -30,6 +30,38 @@ def chunk_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[str
         start = max(start + 1, end - overlap)
     return chunks
 
+class _OnnxEmbedder:
+    """all-MiniLM-L6-v2 via ChromaDB's bundled ONNX runtime: same model, no PyTorch.
+
+    Uses far less memory than Sentence Transformers, so semantic search fits small
+    free hosting tiers. Exposes the same encode() interface the rest of this module uses.
+    """
+    def __init__(self):
+        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+        self._fn = ONNXMiniLM_L6_V2()
+
+    def encode(self, texts, normalize_embeddings=True):
+        import numpy as np
+        texts = list(texts)
+        # Small batches keep ONNX Runtime's working memory low on small instances.
+        vectors = np.array([v for i in range(0, len(texts), 8) for v in self._fn(texts[i:i + 8])],
+                           dtype="float32").reshape(len(texts), -1)
+        if normalize_embeddings:
+            vectors = vectors / np.clip(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12, None)
+        return vectors
+
+
+def _embedder():
+    """Sentence Transformers when installed; otherwise (or with RAG_EMBEDDER=onnx) the ONNX build."""
+    if os.getenv("RAG_EMBEDDER", "").lower() != "onnx":
+        try:
+            from sentence_transformers import SentenceTransformer
+            return SentenceTransformer(os.getenv("RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
+        except ImportError:
+            pass
+    return _OnnxEmbedder()
+
+
 def _load():
     global _model, _client, _collection
     # The optional ChromaDB dependency has unresolved security advisories.
@@ -41,8 +73,7 @@ def _load():
         return True
     try:
         import chromadb
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(os.getenv("RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
+        _model = _embedder()
         _client = chromadb.PersistentClient(path=os.getenv("RAG_VECTOR_PATH", "./chroma_data"))
         _collection = _client.get_or_create_collection(
             name="school_knowledge",
