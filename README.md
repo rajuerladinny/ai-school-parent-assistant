@@ -1,5 +1,16 @@
 # AI School Parent Communication Assistant — RAG MVP
 
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Runs fully local](https://img.shields.io/badge/AI-runs%20fully%20local-2ea44f.svg)](#how-it-works)
+[![Status: prototype](https://img.shields.io/badge/status-prototype-orange.svg)](#important-limitations)
+[![Good first issues](https://img.shields.io/github/issues/rajuerladinny/ai-school-parent-assistant/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/rajuerladinny/ai-school-parent-assistant/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+
+A free, self-hosted assistant that answers parents' questions from **approved school documents only**, and hands anything it can't answer to school staff. No paid AI service or API key needed.
+
+![Parent site: chat with the school assistant](docs/images/parent-chat.png)
+
 > **Status:** Development prototype. Not production-ready. Use fictional school data only. The production security and PostgreSQL acceptance work is in progress; passing local tests alone does not authorize deployment.
 
 **What it does:** Helps parents find answers grounded in approved school FAQs and documents, see policy updates, and escalate unanswered questions to school staff. Administrators manage content and policy review; parent and staff accounts support scoped access in the development implementation.
@@ -91,6 +102,32 @@ flowchart TB
 - Everything runs locally. No hosted AI service or API key is needed.
 
 For a file-by-file map of the code, see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
+
+## Roadmap
+
+- [x] Parent chat with source attribution and staff escalation
+- [x] Local semantic search (ChromaDB + Sentence Transformers) with optional Ollama answers
+- [x] Versioned policies with approval, conflict checks and parent notifications
+- [x] Parent and staff accounts with school-scoped sessions
+- [x] Redesigned chat-first parent site and separate staff portal
+- [ ] Free hosted demo for trying the app without installing it
+- [ ] PostgreSQL as the runtime database (schema, migration and restore tooling already in place)
+- [ ] Individual staff sign-in in the portal, replacing the shared admin key
+- [ ] Docker setup for one-command local start
+- [ ] Multilingual answers for parents
+- [ ] Email or SMS notifications for policy updates
+
+Have an idea? Open an [issue](https://github.com/rajuerladinny/ai-school-parent-assistant/issues) or start a [discussion](https://github.com/rajuerladinny/ai-school-parent-assistant/discussions).
+
+## Contributing
+
+Contributions are welcome, from first-timers too.
+
+- Start with an issue labelled [`good first issue`](https://github.com/rajuerladinny/ai-school-parent-assistant/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or [`help wanted`](https://github.com/rajuerladinny/ai-school-parent-assistant/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull request guidelines.
+- Use fictional data only. Never commit real student, parent or school information.
+
+If this project is useful to you, consider giving it a ⭐ and clicking **Watch → Custom → Releases** to hear about new versions.
 
 ## Features
 - Parent chat with source attribution and staff escalation for unknown questions
