@@ -97,6 +97,7 @@ pytest
 
 ## Further documentation
 
+- [docs/demo/DEMO_GUIDE.md](docs/demo/DEMO_GUIDE.md): step-by-step demo with demo credentials and sample files
 - [README.md](README.md): full feature notes and limitations
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md)
 - [docs/PRODUCTION_READINESS_ACCEPTANCE.md](docs/PRODUCTION_READINESS_ACCEPTANCE.md)
