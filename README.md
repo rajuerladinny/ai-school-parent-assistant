@@ -23,7 +23,7 @@ A free, self-hosted assistant that answers parents' questions from **approved sc
 
 Standalone fictional-school demo for parent questions and school staff. Example school: **Sunrise Valley School**. All facts and names are illustrative.
 
-**Try it:** follow the step-by-step [demo guide](docs/demo/DEMO_GUIDE.md), which includes demo credentials and sample school files.
+**Try it:** run `docker build -t school-parent-assistant . && docker run -p 7860:7860 school-parent-assistant` and open http://localhost:7860, or follow the step-by-step [demo guide](docs/demo/DEMO_GUIDE.md).
 
 ## How it works
 
@@ -113,7 +113,7 @@ For a file-by-file map of the code, see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.m
 - [ ] Free hosted demo for trying the app without installing it
 - [ ] PostgreSQL as the runtime database (schema, migration and restore tooling already in place)
 - [ ] Individual staff sign-in in the portal, replacing the shared admin key
-- [ ] Docker setup for one-command local start
+- [x] Docker setup and a read-only public demo mode
 - [ ] Multilingual answers for parents
 - [ ] Email or SMS notifications for policy updates
 
@@ -137,6 +137,35 @@ If this project is useful to you, consider giving it a ⭐ and clicking **Watch 
 - Optional local answer generation through **Ollama**; without Ollama, the app returns retrieved excerpts (extractive RAG)
 - Keyword FAQ fallback when optional vector dependencies are not installed
 - SQLite storage and CI tests
+
+## Run the demo with Docker
+
+```bash
+docker build -t school-parent-assistant .
+docker run -p 7860:7860 school-parent-assistant
+```
+
+Open http://localhost:7860. The image runs in **public demo mode** with semantic search and the fictional Sunrise Valley content already loaded.
+
+### Public demo mode
+
+`SCHOOL_DEMO_MODE=1` turns the app into a safe showcase for a public URL:
+
+- Loads fictional content once: the parent handbook, an approved fee policy (with its resolved conflict), a draft policy, a demo parent account and sample staff questions.
+- Shows a demo banner, a **Try the demo** card with one-click parent sign-in, and the staff demo key on the unlock screen.
+- Makes the staff portal **read-only**: every change except asking, signing in and out, and marking an update read returns HTTP 403.
+- Never stores what visitors type: unanswered questions are explained, not saved.
+- Refuses to start with `SCHOOL_ENV=production`. Use a separate database, never one with real records.
+
+The Docker image keeps its database in `/tmp`, so every restart begins with fresh demo data.
+
+### Deploy to a Hugging Face Space
+
+1. Create a free Space on huggingface.co with **SDK: Docker**.
+2. From this repository, in Git Bash: `scripts/deploy_hf_space.sh <hf-username>/<space-name>`
+3. Git asks for your Hugging Face username and an access token with write permission.
+
+The script deploys the last commit with the Space settings from [deploy/huggingface/README.md](deploy/huggingface/README.md).
 
 ## Run basic mode
 

@@ -85,6 +85,24 @@ textarea{resize:vertical;min-height:90px}
 
 /* Layout shell with sidebar */
 .shell{max-width:1200px;margin:0 auto;padding:20px 16px 40px;display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
+.demo-bar{background:var(--brand-soft);border-bottom:1px solid var(--border);font-size:13px;color:var(--text)}
+.demo-bar .in{max-width:1200px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.demo-bar b{color:var(--brand)}
+.demo-bar .btn{margin-left:auto}
+.demo-card{margin:14px 4px 0;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px}
+.demo-card h3{font-size:14px;margin:0;display:flex;align-items:center;gap:7px}
+.demo-card p{margin:0;color:var(--muted)}
+.demo-card .creds{background:var(--surface-2);border-radius:var(--radius-sm);padding:8px 10px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.6;color:var(--text)}
+.demo-card .btn{width:100%}
+.demo-bar .show-sm{display:none}
+@media (max-width:860px){
+  .demo-bar .in{padding:6px 12px;gap:6px;font-size:12px;flex-wrap:nowrap}
+  .demo-bar .in>svg,.demo-bar .long{display:none}
+  .demo-bar .show-sm{display:inline-flex}
+  .demo-bar .btn.ghost{display:none}
+}
+.demo-key{margin-top:14px;padding:10px 12px;background:var(--brand-soft);border-radius:var(--radius-sm);font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.demo-key code{font-weight:700}
 .side{position:sticky;top:76px;display:flex;flex-direction:column;gap:4px}
 .side .nav-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;padding:14px 12px 6px}
 .nav{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-sm);color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;border:0;background:none;cursor:pointer;font-family:inherit;text-align:left;width:100%}
@@ -285,6 +303,15 @@ dialog[open]{animation:dlg .18s ease-out}
   </div>
 </header>
 
+<div class="demo-bar" id="demoBar" hidden>
+  <div class="in">
+    <svg class="i"><use href="#i-cap"/></svg>
+    <span><b>Live demo</b><span class="long"> · Sunrise Valley School is fictional · The staff portal is read-only · Nothing you type is stored</span><span class="show-sm"> · Fictional school</span></span>
+    <button class="btn sm show-sm" id="demoSignInBar" type="button">Try as demo parent</button>
+    <a class="btn ghost sm" href="https://github.com/rajuerladinny/ai-school-parent-assistant" target="_blank" rel="noopener">View on GitHub</a>
+  </div>
+</div>
+
 <!-- ============ PARENT SITE ============ -->
 <div id="parentApp">
   <nav class="mobile-nav" aria-label="Parent sections">
@@ -301,6 +328,14 @@ dialog[open]{animation:dlg .18s ease-out}
       <div class="nav-label">About</div>
       <p style="padding:0 12px;font-size:13px;color:var(--muted)">Answers come only from approved school documents. Anything the assistant can't answer is sent to school staff.</p>
       <p style="padding:10px 12px 0;font-size:12px;color:var(--faint)" id="ragStatus">Checking retrieval setup…</p>
+      <div class="card demo-card" id="demoCard" hidden>
+        <h3><svg class="i"><use href="#i-cap"/></svg>Try the demo</h3>
+        <p>Sign in as a fictional parent to see policy updates and staff replies.</p>
+        <div class="creds" id="demoCreds"></div>
+        <button class="btn sm" id="demoSignIn" type="button"><span class="spin"></span>Sign in as demo parent</button>
+        <p>Then look behind the scenes:</p>
+        <a class="btn ghost sm" href="#/staff" id="demoStaff">Open the staff portal</a>
+      </div>
     </aside>
 
     <main>
@@ -363,6 +398,10 @@ dialog[open]{animation:dlg .18s ease-out}
       </div>
       <button class="btn" style="width:100%"><span class="spin"></span>Unlock portal</button>
     </form>
+    <div class="demo-key" id="demoKey" hidden>
+      <span>Demo key: <code id="demoKeyValue"></code></span>
+      <button class="btn sm" id="useDemoKey" type="button">Use demo key</button>
+    </div>
   </section>
 
   <div id="staffMain" hidden>
@@ -599,7 +638,7 @@ $('updatesList').addEventListener('click',async e=>{
 
 function setParent(p){
   state.parent=p;
-  $('openSignIn').hidden=!!p;$('userMenu').hidden=!p;
+  $('openSignIn').hidden=!!p;$('userMenu').hidden=!p;$('demoSignIn').hidden=!!p;$('demoSignInBar').style.visibility=p?'hidden':'';
   if(p){
     const name=p.display_name||p.username;
     $('userName').textContent=name;$('userFull').textContent=name;$('userHandle').textContent='@'+p.username;
@@ -662,7 +701,9 @@ async function ask(q){
   try{
     const r=await req('/api/chat',{method:'POST',headers:parentHeaders({'Content-Type':'application/json'}),body:JSON.stringify({question:q})});
     typing.remove();
-    if(r.needs_staff){
+    if(r.needs_staff&&r.demo){
+      addBubble(`${esc(r.answer)}<div class="meta"><span class="pill warn">Would go to staff</span><a href="#/staff" class="meta-label">See the sample staff inbox →</a></div>`,'bot','escalated');
+    }else if(r.needs_staff){
       addBubble(`${esc(r.answer)}<div class="meta"><span class="pill warn">Sent to staff${r.escalation_id?' · #'+r.escalation_id:''}</span>${state.parentToken?'<a href="#/questions" class="meta-label">Track in My questions →</a>':'<button class="btn subtle sm" data-signin type="button">Sign in to track replies</button>'}</div>`,'bot','escalated');
     }else{
       const srcs=(r.sources&&r.sources.length?r.sources:(r.source?[{source:r.source}]:[]));
@@ -679,7 +720,7 @@ question.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isCo
 function autoGrow(){question.style.height='auto';question.style.height=Math.min(question.scrollHeight,160)+'px';$('charCount').textContent=question.value.length+' / 500'}
 question.addEventListener('input',autoGrow);
 msgs.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)ask(c.textContent)});
-const welcomeHTML=$('welcome').outerHTML;
+let welcomeHTML=$('welcome').outerHTML;
 $('clearChat').onclick=()=>{msgs.innerHTML=welcomeHTML;question.focus()};
 
 async function loadHealth(){
@@ -890,7 +931,28 @@ document.querySelectorAll('.drop').forEach(z=>{
 });
 function resetForm(f){f.reset();f.querySelectorAll('.drop .file').forEach(l=>l.textContent='')}
 
-loadHealth();restoreParent().finally(route);
+/* ---------- Public demo mode ---------- */
+async function loadDemo(){
+  let d;try{d=await req('/api/demo')}catch(e){return}
+  if(!d.enabled)return;
+  $('demoBar').hidden=false;$('demoCard').hidden=false;$('demoKey').hidden=false;
+  $('demoCreds').innerHTML=`School code: <b>${esc(d.school_code)}</b><br>Username: <b>${esc(d.parent_username)}</b><br>Password: <b>${esc(d.parent_password)}</b>`;
+  $('demoKeyValue').textContent=d.admin_key;
+  const chips=$('welcome')?.querySelector('.chips');
+  if(chips&&d.sample_questions?.length){
+    chips.innerHTML=d.sample_questions.map(q=>`<button class="chip" type="button">${esc(q)}</button>`).join('');
+    welcomeHTML=$('welcome').outerHTML;
+  }
+  $('demoSignInBar').onclick=()=>$('demoSignIn').click();
+  $('demoSignIn').onclick=()=>{
+    if(state.parent){toast('You are already signed in');return}
+    $('signSchool').value=d.school_code;$('signUser').value=d.parent_username;$('signPass').value=d.parent_password;
+    $('signInForm').requestSubmit();
+  };
+  $('useDemoKey').onclick=()=>{$('adminKey').value=d.admin_key;$('unlockForm').requestSubmit()};
+}
+
+loadHealth();loadDemo();restoreParent().finally(route);
 </script>
 </body>
 </html>

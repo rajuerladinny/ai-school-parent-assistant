@@ -4,6 +4,7 @@ Install requirements-rag.txt to enable dense vector search. The app remains usab
 without the optional dependencies and falls back to the existing FAQ matching.
 """
 import os
+import re
 import hashlib
 import json
 from typing import Iterable
@@ -91,6 +92,65 @@ def rebuild(records: Iterable[dict]) -> bool:
         return True
     except Exception:
         return False
+
+def _strip_headings(text: str) -> str:
+    """Remove Markdown headings, which chunking flattens into the running text.
+
+    A heading is the text after a "#" marker up to the first capitalised word that
+    follows a lowercase word (or follows a one-word heading), e.g.
+    "## Lunch and snacks The canteen..." -> "The canteen...".
+    """
+    parts = re.split(r"\s*#{1,6}\s+", " ".join(text.split()))
+    kept = [parts[0]]
+    for segment in parts[1:]:
+        if not re.search(r"[.!?]", segment):
+            continue  # a heading with no body before the next heading, e.g. a document title
+        words = segment.split(" ")
+        cut = len(words)
+        for i in range(1, len(words)):
+            if words[i][:1].isupper() and (i == 1 or words[i - 1][:1].islower()):
+                cut = i
+                break
+        kept.append(" ".join(words[cut:]))
+    return " ".join(p for p in kept if p)
+
+
+def _sentences(text: str) -> list[str]:
+    """Complete, readable sentences from a passage (no headings, bullets or cut-off fragments)."""
+    prose = re.sub(r"(^|\s)[-*•]\s+", " ", _strip_headings(text))
+    sentences = (s.strip() for s in re.split(r"(?<=[.!?])\s+", prose))
+    return [s for s in sentences if len(s) >= 20 and re.match(r"[A-Z0-9]", s) and s[-1] in ".!?"]
+
+
+def best_sentences(question: str, passages: list[str], limit: int = 2) -> str:
+    """Quote the sentences that best answer the question, instead of whole chunks.
+
+    Used when no local LLM is configured. It only selects text from the approved
+    passages; it never rewrites or adds anything.
+    """
+    candidates = []
+    for passage in passages:
+        for sentence in _sentences(passage):
+            if sentence not in candidates:
+                candidates.append(sentence)
+    if not candidates:
+        return ""
+    scores = None
+    if _load():
+        try:
+            vectors = _model.encode([question] + candidates, normalize_embeddings=True)
+            scores = [float(vectors[0] @ v) for v in vectors[1:]]
+        except Exception:
+            scores = None
+    if scores is None:
+        words = {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", question.lower())}
+        scores = [len(words & {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", s.lower())}) for s in candidates]
+    ranked = sorted(range(len(candidates)), key=lambda i: scores[i], reverse=True)
+    top = scores[ranked[0]]
+    # Add further sentences only when they are nearly as relevant as the best one.
+    chosen = [i for i in ranked[:limit] if i == ranked[0] or (top > 0 and scores[i] >= 0.94 * top)]
+    return " ".join(candidates[i] for i in chosen)
+
 
 def search(question: str, limit: int = 4, school_id: int = 1) -> list[dict]:
     if not isinstance(school_id, int) or isinstance(school_id, bool) or school_id < 1:

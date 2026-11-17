@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
-from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin, observability
+from . import rag, policies, conflicts, notifications, auth as parent_auth, staff, staff_auth, parent_questions, database_config, school_admin, observability, demo
 
 _last_policy_index_date = None
 
@@ -30,6 +30,10 @@ if os.getenv("SCHOOL_ENV")=="production":
         raise RuntimeError("Production requires shared Redis login limiter configuration")
     if not redis_url.startswith("rediss://"):
         raise RuntimeError("Production requires TLS Redis transport")
+
+# Public demo mode blocks staff changes. Registered first so the security-header
+# middleware below still wraps its responses.
+app.middleware("http")(demo.read_only_guard)
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):
@@ -68,7 +72,7 @@ def records_for_index():
         for r in c.execute("SELECT k.id,k.topic,k.answer,k.source,k.school_id FROM knowledge k "
                            "JOIN schools s ON s.id=k.school_id WHERE k.active=TRUE AND s.active=TRUE"):
             records.append({"id":"faq-"+str(r["id"]),"school_id":r["school_id"],"topic":r["topic"],"source":r["source"],
-                            "text":r["topic"]+"\n"+r["answer"]})
+                            "text":r["topic"].rstrip(".")+".\n"+r["answer"]})
         for r in c.execute("SELECT d.id,d.filename,d.title,d.content,d.school_id FROM documents d "
                            "JOIN schools s ON s.id=d.school_id WHERE d.active=TRUE AND s.active=TRUE"):
             records.append({"id":"doc-"+str(r["id"]),"school_id":r["school_id"],"topic":r["title"],
@@ -132,8 +136,11 @@ def setup():
         parent_questions.setup(c)
         if not c.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0]:
             c.executemany("INSERT INTO knowledge(topic,answer,source) VALUES(?,?,?)",SAMPLE)
+        if demo.enabled():
+            demo.seed(c,parent_auth.digest)
 @app.on_event("startup")
 def startup():
+    demo.validate()
     database_config.validate_configuration()
     if database_config.backend()=="sqlite" and os.getenv("SCHOOL_ENV")=="production" and os.getenv("SCHOOL_DB","school.db").endswith(".db"):
         raise RuntimeError("SQLite production mode is disabled until PostgreSQL migration is complete")
@@ -191,10 +198,15 @@ def generate_grounded_answer(question, passages):
         except Exception:
             pass
     # No local generator configured: return retrieved excerpts transparently, not a fabricated AI answer.
-    return "\n\n".join(p["text"] for p in passages[:2]),"extractive-rag"
+    excerpt=rag.best_sentences(question,[p["text"] for p in passages])
+    return excerpt or "\n\n".join(p["text"] for p in passages[:2]),"extractive-rag"
 @app.get("/api/health")
 def health():
-    return {"status":"ok","vector_search_enabled":rag.enabled(),"local_generator_configured":bool(os.getenv("OLLAMA_BASE_URL"))}
+    return {"status":"ok","vector_search_enabled":rag.enabled(),"local_generator_configured":bool(os.getenv("OLLAMA_BASE_URL")),
+            "demo_mode":demo.enabled()}
+@app.get("/api/demo")
+def demo_info():
+    return demo.info()
 @app.get("/api/knowledge")
 def knowledge(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
@@ -291,6 +303,8 @@ def chat(q:Question,authorization:str|None=Header(None)):
     if not rag.enabled():
         fallback=fallback_search(q.question,school_id=school_id)
         if fallback:return fallback
+    if demo.enabled():
+        return demo.escalation_reply()
     with db() as c:
         cur=c.execute("INSERT INTO escalations(question,parent_id,school_id) VALUES(?,?,?) RETURNING id",(q.question,parent_id,school_id))
         escalation_id=cur.fetchone()["id"]
@@ -301,7 +315,7 @@ def escalations(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:return [dict(x) for x in c.execute("SELECT * FROM escalations WHERE school_id=1 ORDER BY id DESC")]
 @app.get("/",response_class=HTMLResponse)
-def home():return Path(__file__).with_name("index.html").read_text()
+def home():return Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 
 # Policy module uses the same admin key, SQLite store and document parser.
 policies.configure(db, auth, extract_text, rebuild_index)
