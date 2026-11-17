@@ -28,8 +28,8 @@ if os.getenv("SCHOOL_ENV")=="production":
     redis_url=os.getenv("SCHOOL_RATE_LIMIT_REDIS_URL","")
     if not redis_url or len(os.getenv("SCHOOL_RATE_LIMIT_KEY_SECRET",""))<32:
         raise RuntimeError("Production requires shared Redis login limiter configuration")
-    if not redis_url.startswith("rediss://") and not (redis_url.startswith("redis://") and os.getenv("SCHOOL_ALLOW_INSECURE_REDIS")=="1"):
-        raise RuntimeError("Production requires TLS Redis transport unless explicitly overridden")
+    if not redis_url.startswith("rediss://"):
+        raise RuntimeError("Production requires TLS Redis transport")
 
 @app.middleware("http")
 async def response_headers(request:Request,call_next):

@@ -48,3 +48,34 @@ def test_postgres_adapter_explicit_commit_and_rollback(postgres_database):
     with connect(dsn) as c:
         assert c.execute("SELECT COUNT(*) AS n FROM schools WHERE slug=?",(slug,)).fetchone()["n"]==1
         c.execute("DELETE FROM schools WHERE slug=?",(slug,))
+
+
+def test_lost_connection_rolls_back_and_fresh_connection_recovers(postgres_database):
+    """An interrupted transaction must not survive a new request connection."""
+    import psycopg
+    from app.postgres_adapter import connect
+
+    dsn = postgres_database
+    with pytest.raises(psycopg.OperationalError):
+        with connect(dsn) as interrupted:
+            pid = interrupted.execute("SELECT pg_backend_pid() AS pid").fetchone()["pid"]
+            interrupted.execute(
+                "INSERT INTO schools(slug,name) VALUES(?,?)",
+                ("interrupted-school", "Fictional interrupted school"),
+            )
+            with psycopg.connect(dsn, autocommit=True) as controller:
+                assert controller.execute("SELECT pg_terminate_backend(%s)", (pid,)).fetchone()[0]
+            interrupted.execute("SELECT 1")
+
+    with connect(dsn) as recovered:
+        assert recovered.execute(
+            "SELECT COUNT(*) AS n FROM schools WHERE slug=?", ("interrupted-school",)
+        ).fetchone()["n"] == 0
+        recovered.execute(
+            "INSERT INTO schools(slug,name) VALUES(?,?)",
+            ("recovered-school", "Fictional recovered school"),
+        )
+    with connect(dsn) as verification:
+        assert verification.execute(
+            "SELECT COUNT(*) AS n FROM schools WHERE slug=?", ("recovered-school",)
+        ).fetchone()["n"] == 1

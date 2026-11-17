@@ -63,3 +63,12 @@ def test_production_rejects_plaintext_redis_by_default():
     )
     assert result.returncode != 0
     assert "TLS Redis transport" in result.stderr
+
+
+def test_production_rejects_plaintext_redis_even_with_override():
+    result = _run_production_import(
+        SCHOOL_RATE_LIMIT_REDIS_URL="redis://localhost:6379/0",
+        SCHOOL_ALLOW_INSECURE_REDIS="1",
+    )
+    assert result.returncode != 0
+    assert "TLS Redis transport" in result.stderr
