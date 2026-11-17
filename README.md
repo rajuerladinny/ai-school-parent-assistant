@@ -5,6 +5,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Runs fully local](https://img.shields.io/badge/AI-runs%20fully%20local-2ea44f.svg)](#how-it-works)
 [![Status: prototype](https://img.shields.io/badge/status-prototype-orange.svg)](#important-limitations)
+[![Live demo](https://img.shields.io/badge/%E2%96%B6%20live%20demo-try%20it%20now-2ea44f.svg)](https://school-parent-assistant-demo.onrender.com)
 [![Good first issues](https://img.shields.io/github/issues/rajuerladinny/ai-school-parent-assistant/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/rajuerladinny/ai-school-parent-assistant/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 
 A free, self-hosted assistant that answers parents' questions from **approved school documents only**, and hands anything it can't answer to school staff. No paid AI service or API key needed.
@@ -23,7 +24,7 @@ A free, self-hosted assistant that answers parents' questions from **approved sc
 
 Standalone fictional-school demo for parent questions and school staff. Example school: **Sunrise Valley School**. All facts and names are illustrative.
 
-**Try it:** run `docker build -t school-parent-assistant . && docker run -p 7860:7860 school-parent-assistant` and open http://localhost:7860, or follow the step-by-step [demo guide](docs/demo/DEMO_GUIDE.md).
+**▶ [Try the live demo](https://school-parent-assistant-demo.onrender.com)** (fictional school, read-only; the free server may take about a minute to wake up). Or run it yourself: `docker build -t school-parent-assistant . && docker run -p 7860:7860 school-parent-assistant` and open http://localhost:7860, or follow the step-by-step [demo guide](docs/demo/DEMO_GUIDE.md).
 
 ## How it works
 
@@ -110,7 +111,7 @@ For a file-by-file map of the code, see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.m
 - [x] Versioned policies with approval, conflict checks and parent notifications
 - [x] Parent and staff accounts with school-scoped sessions
 - [x] Redesigned chat-first parent site and separate staff portal
-- [ ] Free hosted demo for trying the app without installing it
+- [x] Free hosted [live demo](https://school-parent-assistant-demo.onrender.com)
 - [ ] PostgreSQL as the runtime database (schema, migration and restore tooling already in place)
 - [ ] Individual staff sign-in in the portal, replacing the shared admin key
 - [x] Docker setup and a read-only public demo mode
