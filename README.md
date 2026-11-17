@@ -316,3 +316,8 @@ Both `scripts/verify_postgres_restore.py` and `scripts/postgres_restore_verify.p
 ## PostgreSQL SQL compatibility inventory
 
 Run `python scripts/audit_sqlite_sql.py` to list SQLite-only PRAGMA statements, INSERT OR IGNORE, implicit lastrowid, table_info, INTEGER PRIMARY KEY and COLLATE NOCASE occurrences in the application. Run with `--strict` to fail if any remain. This is a static migration checklist and does **not** make the runtime PostgreSQL-compatible. Actual conversion requires replacing these operations, aligning PostgreSQL schema with application models, and integration testing every route.
+
+
+## Free online demo deployment (Render)
+
+The repository includes a `render.yaml` Blueprint for a **free, fictional-data-only** FastAPI deployment. See [Render Free deployment instructions](docs/RENDER_FREE_DEPLOYMENT.md) for setup, verification and limitations. The free deployment uses keyword FAQ fallback rather than the optional local embedding model. SQLite lives on an **ephemeral** filesystem, so accounts and changes can disappear. Do **not** use real parent or student data. Deployment must be authorized and initiated in your own Render account; adding the Blueprint does not deploy automatically.
