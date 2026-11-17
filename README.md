@@ -12,6 +12,86 @@
 
 Standalone fictional-school demo for parent questions and school staff. Example school: **Sunrise Valley School**. All facts and names are illustrative.
 
+**Try it:** follow the step-by-step [demo guide](docs/demo/DEMO_GUIDE.md), which includes demo credentials and sample school files.
+
+## How it works
+
+### System overview
+
+One web page (`app/index.html`) has two views: the **parent site** and the **staff portal**. Both call the same FastAPI server, which stores records in SQLite, searches with a local ChromaDB index, and can optionally use a local Ollama model to write answers.
+
+```mermaid
+flowchart TB
+    subgraph Browser["Browser: app/index.html"]
+        P["Parent site<br/>Chat, policy updates, my questions"]
+        S["Staff portal<br/>Unlocked with admin key"]
+    end
+
+    subgraph API["FastAPI app: app/"]
+        C["Chat + search<br/>main.py, rag.py"]
+        A["Sign-in<br/>auth.py, staff_auth.py"]
+        Q["Parent questions<br/>staff.py, parent_questions.py"]
+        PO["Policies<br/>policies.py, conflicts.py, notifications.py"]
+    end
+
+    DB[("SQLite school.db<br/>Accounts, FAQs, documents,<br/>policies, questions")]
+    V[("ChromaDB index<br/>Embeddings per school")]
+    O["Ollama, optional<br/>Writes short answers"]
+
+    P --> API
+    S --> API
+    API --> DB
+    C --> V
+    C -.-> O
+```
+
+| Part | What it does |
+|---|---|
+| Parent site | Anyone can ask general questions. Signed-in parents (school code `demo`) also see **Policy updates** and **My questions**. |
+| Staff portal | Staff manage the knowledge base, documents, policies and conflicts, reply to parent questions, and create parent accounts. |
+| SQLite (`school.db`) | The source of truth for every record. |
+| ChromaDB (`chroma_data/`) | A search index built from approved FAQs, documents and policies. It's rebuilt from SQLite whenever content changes. |
+| Ollama (optional) | A local model that writes a short answer from the matched passages. Without it, the app shows the matching passage itself. |
+
+### Flow 1: A parent asks a question
+
+The assistant never guesses. It answers only when it finds a close match in approved content for the parent's school. Otherwise, the question goes to a person.
+
+```mermaid
+flowchart TB
+    A["Parent asks a question<br/>POST /api/chat"] --> B["Search approved content<br/>FAQs, documents, approved policies<br/>for this school only"]
+    B --> C{"Close enough match?<br/>distance at most 0.62"}
+    C -- Yes --> D["Answer with source<br/>Ollama answer or quoted passage"]
+    C -- No --> E["Send to staff queue<br/>saved as an escalation"]
+    E --> F["Staff assign and reply<br/>open, assigned, resolved"]
+    F --> G["Parent sees the reply<br/>My questions tab"]
+```
+
+### Flow 2: Staff publish a policy
+
+New policies are hidden until approved. Before approval, the app checks for older FAQ entries or documents on the same topic, so parents never get two conflicting answers.
+
+```mermaid
+flowchart TB
+    A["Staff upload a policy draft<br/>hidden from parents"] --> B["Staff click Approve"]
+    B --> C{"Older FAQ or document<br/>with the same topic?"}
+    C -- Yes --> D["Approval blocked<br/>listed under Conflicts"]
+    D --> E["Staff deactivate the old entry"]
+    E --> B
+    C -- No --> F["Policy approved<br/>search index rebuilt"]
+    F --> G["Parents see it from the effective date<br/>Policy updates and chat answers"]
+```
+
+### Key safeguards
+
+- Answers come only from approved school content, and every answer shows its source.
+- Questions without a confident answer go to staff instead of getting a guessed reply.
+- Search results are filtered by school, and parents only see their own questions.
+- Policies stay hidden until approved and effective, and conflicting older entries block approval.
+- Everything runs locally. No hosted AI service or API key is needed.
+
+For a file-by-file map of the code, see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
+
 ## Features
 - Parent chat with source attribution and staff escalation for unknown questions
 - School admin can add/delete approved FAQ entries
