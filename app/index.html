@@ -1,25 +1,896 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>School Parent Assistant</title><style>body{font-family:system-ui;margin:0;background:#f2f5fa;color:#17263e}header{background:#23447e;color:white;padding:24px}main{max-width:1050px;margin:25px auto;padding:0 15px;display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{background:white;border-radius:15px;padding:22px;box-shadow:0 3px 12px #1232}input,textarea{box-sizing:border-box;width:100%;padding:12px;border:1px solid #bdc7d5;border-radius:8px;margin:8px 0 13px}button{background:#234b9b;color:white;border:0;padding:11px 17px;border-radius:8px;cursor:pointer}.msg{padding:12px;background:#edf3ff;border-radius:9px;margin:10px 0}.item{padding:12px 0;border-bottom:1px solid #ddd}small{color:#65748b}@media(max-width:750px){main{grid-template-columns:1fr}}</style></head><body><header><h1>🏫 Sunrise Valley School</h1><p>Fictional school · Parent communication demo</p></header><main><section class="card"><h2>💬 Parent Chat</h2><p><small>Ask about school timings, holidays, admissions, fees or events. Do not share student details.</small></p><p><small id="ragStatus">Checking retrieval setup…</small></p><h3>🔐 Parent login</h3><p><small>School administrators create parent accounts. Parent passwords are not shared with the chat.</small></p><form id="parentlogin"><label for="parentschool">School code</label><input id="parentschool" name="school_code" value="demo" required maxlength="80" autocomplete="off" aria-describedby="parentschoolhelp"><small id="parentschoolhelp">Use the code supplied by your school. Demo code: demo.</small><input id="parentusername" autocomplete="username" required placeholder="Parent username"><input id="parentpassword" type="password" autocomplete="current-password" required placeholder="Password"><button>Log in</button></form><button id="parentlogout" type="button">Log out</button><div id="parentstatus" aria-live="polite"></div><button id="parentnotices" type="button">My policy updates</button><div id="parentinbox"></div><h3>My staff questions</h3><button id="myquestions" type="button">Check my questions</button><div id="myquestionlist"></div><div id="msgs" aria-live="polite"><div class="msg">Hello! How can I help you today?</div></div><form id="chat"><input id="question" required minlength="3" maxlength="500" placeholder="What are school timings?"><button>Ask</button></form></section><section class="card"><h2>🛠️ School Admin Dashboard</h2><p><small>Only approved, non-personal school information.</small></p><input id="key" type="password" placeholder="Admin key"><form id="add"><input id="topic" required placeholder="Topic"><textarea id="answer" required placeholder="Approved answer"></textarea><input id="source" required placeholder="Source, e.g. handbook"><button>Add information</button></form><p id="status" aria-live="polite"></p><h3>Create parent account</h3><form id="createparent"><input id="newusername" required placeholder="Username"><input id="newdisplay" required placeholder="Display name"><input id="newpassword" type="password" required minlength="12" placeholder="Temporary password (12+ characters)"><button>Create parent</button></form><h3>Policy versions</h3><p><small>Upload drafts, then approve to activate on their effective date. Use the same policy key for revisions.</small></p><form id="policyform"><input id="policykey" required placeholder="Policy key, e.g. fee-policy"><input id="policytitle" required placeholder="Policy title"><label>Effective date <input id="policydate" type="date" required></label><input id="policyfile" type="file" accept=".pdf,.docx,.txt,.md" required><button type="submit">Upload policy draft</button></form><button id="policiesload" type="button">Load policy versions</button><div id="policies"></div><h3>Potential knowledge conflicts</h3><p><small>Potential overlaps must be reviewed before approving a policy. Deactivate outdated FAQ/document entries to resolve.</small></p><button id="loadconflicts" type="button">Load conflicts</button><div id="conflicts"></div><h3>School information</h3><div id="items"></div><h3>School documents for RAG</h3><p><small>Upload approved school policy documents. Supported: PDF, DOCX, TXT, MD; max 5 MB each.</small></p><form id="upload"><input id="docTitle" placeholder="Document title" value="School handbook"><input id="docFile" type="file" accept=".pdf,.docx,.txt,.md" required><button>Upload document</button></form><p id="docStatus" aria-live="polite"></p><div id="docs"></div><h3>Questions for staff</h3><p><small>Assign and resolve unanswered questions. This MVP uses the admin key; individual staff logins are not yet available.</small></p><button id="load" type="button">Load questions</button><div id="queue"></div></section></main><script>
-let parentToken='';
-const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function req(path,opt){let r=await fetch(path,opt),v=await r.json();if(!r.ok)throw Error(v.detail||'Request failed');return v}
-async function loadMyQuestions(){if(!parentToken){$('myquestionlist').textContent='Log in first.';return}try{let a=await req('/api/parent/questions',{headers:{'Authorization':'Bearer '+parentToken}});$('myquestionlist').innerHTML=a.map(x=>`<div class="item"><b>#${x.id} · ${esc(x.status)}</b><p>${esc(x.question)}</p>${x.resolution?`<p><b>Staff response:</b> ${esc(x.resolution)}</p>`:''}</div>`).join('')||'No escalated questions'}catch(e){$('myquestionlist').textContent=e.message}}
-$('myquestions').onclick=loadMyQuestions;
-async function loadParentNotices(){if(!parentToken){$('parentinbox').textContent='Log in first.';return}try{let a=await req('/api/notifications/mine',{headers:{'Authorization':'Bearer '+parentToken}});$('parentinbox').innerHTML=a.map(x=>`<div class="item"><b>${esc(x.title)} v${x.version}</b> · Effective ${esc(x.effective_date)} · ${x.is_read?'Read':`New <button data-myread="${x.policy_id}">Mark read</button>`}</div>`).join('')||'No updates';$('parentinbox').querySelectorAll('button[data-myread]').forEach(b=>b.onclick=async()=>{try{await req('/api/notifications/mine/'+b.dataset.myread+'/read',{method:'POST',headers:{'Authorization':'Bearer '+parentToken}});loadParentNotices();loadMyQuestions()}catch(e){$('parentstatus').textContent=e.message}})}catch(e){$('parentstatus').textContent=e.message}}
-$('parentlogin').onsubmit=async e=>{e.preventDefault();try{let r=await req('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({school_code:$('parentschool').value.trim(),username:$('parentusername').value,password:$('parentpassword').value})});parentToken=r.access_token;$('parentpassword').value='';$('parentstatus').textContent='Logged in as parent';loadParentNotices();loadMyQuestions()}catch(e){$('parentstatus').textContent=e.message}};
-$('parentlogout').onclick=async()=>{if(!parentToken)return;try{await req('/api/auth/logout',{method:'POST',headers:{'Authorization':'Bearer '+parentToken}})}catch(e){}parentToken='';$('parentstatus').textContent='Logged out';$('parentinbox').textContent='';$('myquestionlist').textContent=''};
-$('parentnotices').onclick=loadParentNotices;
-$('createparent').onsubmit=async e=>{e.preventDefault();try{let r=await req('/api/auth/parents',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Key':$('key').value},body:JSON.stringify({username:$('newusername').value,display_name:$('newdisplay').value,password:$('newpassword').value})});$('status').textContent='Parent account created: '+r.username;$('createparent').reset()}catch(e){$('status').textContent=e.message}};
-async function refresh(){let a=await req('/api/knowledge',{headers:{'X-Admin-Key':$('key').value}});$('items').innerHTML=a.map(x=>`<div class="item"><b>${esc(x.topic)}</b><p>${esc(x.answer)}</p><small>Source: ${esc(x.source)}</small><p><button data-id="${x.id}">Delete</button></p></div>`).join('');$('items').querySelectorAll('button').forEach(b=>b.onclick=async()=>{try{await req('/api/knowledge/'+b.dataset.id,{method:'DELETE',headers:{'X-Admin-Key':$('key').value}});refresh()}catch(e){$('status').textContent=e.message}})}
-$('chat').onsubmit=async e=>{e.preventDefault();let q=$('question').value;$('msgs').insertAdjacentHTML('beforeend',`<div class="msg"><b>You:</b> ${esc(q)}</div>`);$('question').value='';try{let r=await req('/api/chat',{method:'POST',headers:{'Content-Type':'application/json',...(parentToken?{'Authorization':'Bearer '+parentToken}:{})},body:JSON.stringify({question:q})});$('msgs').insertAdjacentHTML('beforeend',`<div class="msg"><b>Assistant:</b> ${esc(r.answer)}<p><small>${esc(r.source||(r.escalation_id?'Staff ticket #'+r.escalation_id:'Sent for staff review'))}</small></p></div>`)}catch(err){$('msgs').insertAdjacentHTML('beforeend',`<div class="msg">${esc(err.message)}</div>`)}};
-$('add').onsubmit=async e=>{e.preventDefault();try{await req('/api/knowledge',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Key':$('key').value},body:JSON.stringify({topic:$('topic').value,answer:$('answer').value,source:$('source').value})});$('status').textContent='Added';$('add').reset();refresh()}catch(err){$('status').textContent=err.message}};
-async function loadHealth(){try{let h=await req('/api/health');$('ragStatus').textContent=h.vector_search_enabled?'Local vector search is enabled.':'Vector search dependencies not installed; using keyword fallback.'+(h.local_generator_configured?' Local Ollama generator configured.':' Extractive answer mode unless Ollama is configured.')}catch(e){$('ragStatus').textContent='Retrieval status unavailable'}}
-async function loadDocs(){try{let a=await req('/api/documents',{headers:{'X-Admin-Key':$('key').value}});$('docs').innerHTML=a.map(d=>`<div class="item">${esc(d.title)} · ${esc(d.filename)} · ${d.characters} characters <button data-doc-id="${d.id}">Delete</button></div>`).join('');$('docs').querySelectorAll('button').forEach(b=>b.onclick=async()=>{try{await req('/api/documents/'+b.dataset.docId,{method:'DELETE',headers:{'X-Admin-Key':$('key').value}});loadDocs()}catch(e){$('docStatus').textContent=e.message}})}catch(e){$('docs').textContent=e.message}}
-$('upload').onsubmit=async e=>{e.preventDefault();let file=$('docFile').files[0];if(!file)return;let form=new FormData();form.append('file',file);form.append('title',$('docTitle').value||file.name);$('docStatus').textContent='Uploading and indexing…';try{let r=await fetch('/api/documents',{method:'POST',headers:{'X-Admin-Key':$('key').value},body:form});let d=await r.json();if(!r.ok)throw Error(d.detail||'Upload failed');$('docStatus').textContent='Uploaded '+d.filename+'. Vector index updated: '+d.vector_index_updated;$('docFile').value='';loadDocs();loadHealth()}catch(err){$('docStatus').textContent=err.message}};
-async function loadConflicts(){try{let a=await req('/api/conflicts',{headers:{'X-Admin-Key':$('key').value}});$('conflicts').innerHTML=a.map(x=>`<div class="item"><b>${esc(x.policy_title)} v${x.version}</b>: ${esc(x.legacy_type)} #${x.legacy_id} — ${esc(x.status)} ${x.status==='open'?`<button data-kind="${esc(x.legacy_type)}" data-legacy="${x.legacy_id}">Deactivate outdated item</button>`:''}</div>`).join('')||'No detected overlaps';$('conflicts').querySelectorAll('button[data-legacy]').forEach(b=>b.onclick=async()=>{if(!confirm('Deactivate this knowledge item from parent answers?'))return;try{await req('/api/conflicts/legacy/'+b.dataset.kind+'/'+b.dataset.legacy+'/deactivate',{method:'POST',headers:{'X-Admin-Key':$('key').value}});loadConflicts();refresh();loadDocs()}catch(e){$('status').textContent=e.message}})}catch(e){$('status').textContent=e.message}}
-$('loadconflicts').onclick=loadConflicts;
-async function loadPolicies(){try{let a=await req('/api/policies',{headers:{'X-Admin-Key':$('key').value}});$('policies').innerHTML=a.map(x=>`<div class="item"><b>${esc(x.title)} v${x.version}</b> — ${esc(x.status)}<p><small>Key: ${esc(x.policy_key)} · Effective: ${esc(x.effective_date)} · File: ${esc(x.filename)}</small></p>${x.status==='draft'?`<button data-review="${x.id}" data-approve="true">Approve</button> <button data-review="${x.id}" data-approve="false">Reject</button>`:''}</div>`).join('')||'No policy versions';$('policies').querySelectorAll('button[data-review]').forEach(b=>b.onclick=async()=>{try{await req('/api/policies/'+b.dataset.review+'/review',{method:'POST',headers:{'X-Admin-Key':$('key').value,'Content-Type':'application/json'},body:JSON.stringify({approve:b.dataset.approve==='true'})});loadPolicies();loadConflicts()}catch(e){$('status').textContent=e.message}})}catch(e){$('status').textContent=e.message}}
-$('policiesload').onclick=loadPolicies;
-$('policyform').onsubmit=async e=>{e.preventDefault();let d=new FormData();d.append('policy_key',$('policykey').value);d.append('title',$('policytitle').value);d.append('effective_date',$('policydate').value);d.append('file',$('policyfile').files[0]);try{await req('/api/policies',{method:'POST',headers:{'X-Admin-Key':$('key').value},body:d});$('status').textContent='Draft uploaded; approval required';$('policyform').reset();loadPolicies();loadConflicts()}catch(e){$('status').textContent=e.message}};
-async function loadStaffQuestions(){try{let a=await req('/api/staff/questions',{headers:{'X-Admin-Key':$('key').value}});$('queue').innerHTML=a.map(x=>`<div class="item"><b>#${x.id} · ${esc(x.status)}</b><p>${esc(x.question)}</p><small>Assigned: ${esc(x.assigned_to||'Nobody')}</small><input data-assignee="${x.id}" maxlength="80" placeholder="Staff name" value="${esc(x.assigned_to||'')}"><textarea data-resolution="${x.id}" maxlength="2000" placeholder="Verified staff response">${esc(x.resolution||'')}</textarea><button data-action="assigned" data-question="${x.id}">Assign</button> <button data-action="resolved" data-question="${x.id}">Resolve</button> <button data-history="${x.id}">History</button><div data-events="${x.id}"></div></div>`).join('')||'No questions';$('queue').querySelectorAll('button[data-action]').forEach(b=>b.onclick=async()=>{let id=b.dataset.question;try{await req('/api/staff/questions/'+id,{method:'PATCH',headers:{'X-Admin-Key':$('key').value,'Content-Type':'application/json'},body:JSON.stringify({status:b.dataset.action,assigned_to:$('queue').querySelector('[data-assignee="'+id+'"]').value,resolution:$('queue').querySelector('[data-resolution="'+id+'"]').value})});loadStaffQuestions()}catch(e){$('status').textContent=e.message}});$('queue').querySelectorAll('button[data-history]').forEach(b=>b.onclick=async()=>{try{let a=await req('/api/staff/questions/'+b.dataset.history+'/history',{headers:{'X-Admin-Key':$('key').value}});$('queue').querySelector('[data-events="'+b.dataset.history+'"]').textContent=a.map(x=>x.created_at+' · '+x.action+' · '+(x.detail||'')).join(' | ')||'No events'}catch(e){$('status').textContent=e.message}})}catch(e){$('queue').textContent=e.message}}
-$('load').onclick=loadStaffQuestions;$('key').addEventListener('change',()=>refresh().catch(e=>{$('items').textContent=e.message}));loadHealth();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sunrise Valley School · Parent Assistant</title>
+<style>
+:root{
+  --bg:#f4f6fb;--surface:#fff;--surface-2:#f8f9fc;--border:#e3e7ef;--border-strong:#cfd6e3;
+  --text:#14213d;--muted:#5d6b82;--faint:#8a96aa;
+  --brand:#2f5bd3;--brand-hover:#244bb8;--brand-soft:#eaf0ff;--brand-text:#fff;
+  --ok:#14804a;--ok-soft:#e5f6ec;--warn:#a15c00;--warn-soft:#fff3dc;--bad:#c0362c;--bad-soft:#fdeceb;--info-soft:#eef2f8;
+  --shadow:0 1px 2px rgba(20,33,61,.06),0 4px 16px rgba(20,33,61,.06);
+  --shadow-lg:0 10px 40px rgba(20,33,61,.18);
+  --radius:14px;--radius-sm:9px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0e1420;--surface:#151d2c;--surface-2:#1a2335;--border:#263248;--border-strong:#34425c;
+    --text:#e6ebf5;--muted:#9aa7bd;--faint:#6f7c93;
+    --brand:#5b84f0;--brand-hover:#7398f5;--brand-soft:#1d2a4a;--brand-text:#fff;
+    --ok:#4cc985;--ok-soft:#14321f;--warn:#f0b04a;--warn-soft:#3a2a10;--bad:#f07a70;--bad-soft:#3a1715;--info-soft:#1c2536;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);--shadow-lg:0 10px 40px rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0;line-height:1.25}
+p{margin:0}
+[hidden]{display:none!important}
+svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Top bar */
+.topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.topbar-in{max-width:1200px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;min-width:0}
+.logo{width:36px;height:36px;border-radius:10px;background:var(--brand);display:grid;place-items:center;color:#fff;flex:none}
+.brand b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand small{display:block;color:var(--muted);font-size:12px}
+.spacer{flex:1}
+
+/* Buttons & fields */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid transparent;border-radius:var(--radius-sm);padding:9px 15px;font:inherit;font-weight:600;font-size:14px;cursor:pointer;background:var(--brand);color:var(--brand-text);transition:background .15s,border-color .15s,opacity .15s;white-space:nowrap;text-decoration:none}
+.btn:hover{background:var(--brand-hover)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--border-strong)}
+.btn.ghost:hover{background:var(--surface-2)}
+.btn.subtle{background:transparent;color:var(--muted);padding:7px 10px}
+.btn.subtle:hover{background:var(--surface-2);color:var(--text)}
+.btn.danger{background:transparent;color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}
+.btn.danger:hover{background:var(--bad-soft)}
+.btn.ok{background:var(--ok);color:#fff}
+.btn.sm{padding:6px 11px;font-size:13px}
+.btn.icon{padding:8px;width:38px;height:38px}
+.btn .spin{display:none}
+.btn.loading .spin{display:inline-block}
+.btn.loading{pointer-events:none;opacity:.8}
+.spin{width:15px;height:15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rot .7s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:13px;font-weight:600;color:var(--text)}
+.field .hint{font-size:12px;color:var(--muted)}
+input,textarea,select{width:100%;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:10px 12px;transition:border-color .15s,box-shadow .15s}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
+textarea{resize:vertical;min-height:90px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.pw{position:relative}
+.pw input{padding-right:44px}
+.pw button{position:absolute;right:4px;top:50%;transform:translateY(-50%)}
+.form-error{background:var(--bad-soft);color:var(--bad);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;margin-bottom:14px}
+
+/* Pills & badges */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--info-soft);color:var(--muted);white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.brand{background:var(--brand-soft);color:var(--brand)}
+.badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--bad);color:#fff;font-size:11px;font-weight:700;display:inline-grid;place-items:center}
+
+/* Layout shell with sidebar */
+.shell{max-width:1200px;margin:0 auto;padding:20px 16px 40px;display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
+.side{position:sticky;top:76px;display:flex;flex-direction:column;gap:4px}
+.side .nav-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;padding:14px 12px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-sm);color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;border:0;background:none;cursor:pointer;font-family:inherit;text-align:left;width:100%}
+.nav:hover{background:var(--surface);color:var(--text)}
+.nav[aria-current="page"]{background:var(--brand-soft);color:var(--brand)}
+.nav .badge{margin-left:auto}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.panel-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.panel-head h2{font-size:20px}
+.panel-head p{color:var(--muted);font-size:14px;margin-top:3px}
+.panel-head .spacer{min-width:0}
+
+/* Chat */
+.chat{display:flex;flex-direction:column;height:calc(100vh - 116px);min-height:520px;overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;flex:none;font-weight:700}
+.chat-head small{color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.msgs{flex:1;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:14px;scroll-behavior:smooth}
+.welcome{margin:auto;text-align:center;max-width:520px;padding:20px 0}
+.welcome .avatar{width:56px;height:56px;margin:0 auto 14px;font-size:22px}
+.welcome h2{font-size:22px;margin-bottom:6px}
+.welcome p{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:18px}
+.chip{border:1px solid var(--border-strong);background:var(--surface);color:var(--text);border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s}
+.chip:hover{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.bubble-row{display:flex;gap:10px;max-width:85%;animation:pop .2s ease-out}
+.bubble-row.me{align-self:flex-end;flex-direction:row-reverse}
+.bubble-row .avatar{width:30px;height:30px;font-size:13px}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}}
+.bubble{padding:11px 15px;border-radius:16px;background:var(--surface-2);border:1px solid var(--border);white-space:pre-wrap;word-wrap:break-word}
+.me .bubble{background:var(--brand);color:#fff;border-color:transparent;border-bottom-right-radius:5px}
+.bot .bubble{border-bottom-left-radius:5px}
+.bubble.escalated{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.bubble.error{background:var(--bad-soft);color:var(--bad)}
+.meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+.src{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--surface);border:1px solid var(--border);color:var(--muted);display:inline-flex;gap:5px;align-items:center}
+.src b{color:var(--text);font-weight:600}
+.meta-label{font-size:12px;color:var(--faint)}
+.typing .bubble{display:flex;gap:4px;padding:14px 16px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:blink 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
+.composer{border-top:1px solid var(--border);padding:12px 14px;background:var(--surface)}
+.composer form{display:flex;gap:8px;align-items:flex-end}
+.composer textarea{min-height:46px;max-height:160px;resize:none;border-radius:12px;padding:12px 14px}
+.composer .btn{height:46px;width:46px;padding:0;border-radius:12px}
+.composer-note{font-size:12px;color:var(--faint);margin-top:8px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+
+/* Lists */
+.list{display:flex;flex-direction:column}
+.li{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;gap:14px;align-items:flex-start}
+.li:last-child{border-bottom:0}
+.li-body{flex:1;min-width:0}
+.li-title{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.li-sub{color:var(--muted);font-size:13px;margin-top:3px}
+.li-text{margin-top:6px;white-space:pre-wrap;word-wrap:break-word}
+.li-actions{display:flex;gap:6px;flex-wrap:wrap;flex:none}
+.li.unread{background:color-mix(in srgb,var(--brand-soft) 55%,transparent)}
+.ico-box{width:38px;height:38px;border-radius:10px;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;flex:none}
+.response{margin-top:10px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--ok-soft);font-size:14px}
+.response b{display:block;font-size:12px;color:var(--ok);margin-bottom:2px}
+.empty{padding:44px 20px;text-align:center;color:var(--muted)}
+.empty .ico-box{margin:0 auto 12px;width:48px;height:48px;background:var(--surface-2);color:var(--faint)}
+.empty b{display:block;color:var(--text);margin-bottom:3px}
+.skeleton{height:66px;margin:12px 18px;border-radius:10px;background:linear-gradient(90deg,var(--surface-2),var(--border),var(--surface-2));background-size:200% 100%;animation:sh 1.2s infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.tabs{display:flex;gap:4px;padding:4px;background:var(--surface-2);border-radius:10px;border:1px solid var(--border);width:max-content;max-width:100%;overflow-x:auto}
+.tab{border:0;background:none;padding:6px 12px;border-radius:7px;font:inherit;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+details.manage{margin-top:12px}
+details.manage summary{cursor:pointer;color:var(--brand);font-weight:600;font-size:13px;list-style:none;display:inline-flex;gap:5px;align-items:center}
+details.manage summary::-webkit-details-marker{display:none}
+details.manage[open] summary{margin-bottom:12px}
+.history{margin-top:10px;font-size:13px;color:var(--muted);border-left:2px solid var(--border-strong);padding-left:12px;display:flex;flex-direction:column;gap:4px}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stat{padding:14px 16px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-color .15s}
+.stat:hover{border-color:var(--brand)}
+.stat small{color:var(--muted);font-size:12px;font-weight:600;display:block}
+.stat b{font-size:26px;display:block;margin-top:2px}
+
+/* Lock screen */
+.lock{max-width:420px;margin:8vh auto;padding:32px}
+.lock .ico-box{width:52px;height:52px;margin-bottom:16px}
+.lock h1{font-size:22px;margin-bottom:6px}
+.lock p{color:var(--muted);margin-bottom:22px;font-size:14px}
+
+/* Signed-out prompt */
+.gate{padding:48px 24px;text-align:center}
+.gate .ico-box{margin:0 auto 14px;width:52px;height:52px}
+.gate h3{margin-bottom:6px}
+.gate p{color:var(--muted);margin-bottom:18px}
+
+/* Dropzone */
+.drop{border:2px dashed var(--border-strong);border-radius:var(--radius);padding:22px;text-align:center;color:var(--muted);cursor:pointer;transition:border-color .15s,background .15s;position:relative}
+.drop:hover,.drop.over{border-color:var(--brand);background:var(--brand-soft)}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.drop b{color:var(--brand)}
+.drop .file{color:var(--text);font-weight:600;margin-top:6px}
+
+/* Dialog */
+dialog{border:0;border-radius:18px;padding:0;width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--text);box-shadow:var(--shadow-lg)}
+dialog::backdrop{background:rgba(10,18,35,.45);backdrop-filter:blur(2px)}
+dialog[open]{animation:dlg .18s ease-out}
+@keyframes dlg{from{opacity:0;transform:translateY(10px) scale(.98)}}
+.dlg-head{display:flex;align-items:flex-start;gap:12px;padding:22px 22px 6px}
+.dlg-head h2{font-size:19px}
+.dlg-head p{color:var(--muted);font-size:14px;margin-top:3px}
+.dlg-body{padding:16px 22px 22px}
+.dlg-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+
+/* User menu */
+.menu{position:relative}
+.menu-btn{display:flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:4px 12px 4px 4px;cursor:pointer;font:inherit;color:var(--text);font-weight:600;font-size:14px}
+.menu-btn .avatar{width:30px;height:30px;font-size:13px}
+.menu-pop{position:absolute;right:0;top:calc(100% + 8px);min-width:220px;padding:6px;z-index:30}
+.menu-pop .who{padding:8px 10px 10px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.menu-pop .who small{color:var(--muted);display:block}
+
+/* Toasts */
+.toasts{position:fixed;bottom:20px;right:20px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:calc(100vw - 40px)}
+.toast{display:flex;gap:10px;align-items:center;padding:11px 16px;border-radius:11px;background:var(--text);color:var(--bg);box-shadow:var(--shadow-lg);font-size:14px;animation:pop .2s ease-out;max-width:380px}
+.toast.bad{background:var(--bad);color:#fff}
+.toast.ok svg{color:var(--ok)}
+
+/* Mobile nav */
+.mobile-nav{display:none}
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr;padding-top:12px}
+  .side{display:none}
+  .mobile-nav{display:flex;gap:6px;overflow-x:auto;padding:10px 16px 0;max-width:1200px;margin:0 auto;scrollbar-width:none}
+  .mobile-nav .nav{width:auto;white-space:nowrap;background:var(--surface);border:1px solid var(--border)}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .chat{height:calc(100vh - 150px)}
+  .brand small{display:none}
+  .hide-sm{display:none}
+}
+@media (max-width:520px){
+  .grid2{grid-template-columns:1fr}
+  .bubble-row{max-width:95%}
+  .li{flex-wrap:wrap}
+  .li-actions{width:100%}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/></symbol>
+  <symbol id="i-cap" viewBox="0 0 24 24"><path d="M22 10 12 5 2 10l10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#/">
+      <span class="logo"><svg class="i"><use href="#i-cap"/></svg></span>
+      <span><b>Sunrise Valley School</b><small id="brandSub">Parent Assistant</small></span>
+    </a>
+    <span class="spacer"></span>
+    <!-- Parent-side controls -->
+    <div id="parentControls" class="row">
+      <a class="btn subtle hide-sm" href="#/staff"><svg class="i"><use href="#i-shield"/></svg>Staff portal</a>
+      <button class="btn" id="openSignIn" type="button"><svg class="i"><use href="#i-user"/></svg>Sign in</button>
+      <div class="menu" id="userMenu" hidden>
+        <button class="menu-btn" id="userMenuBtn" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="userInitial">P</span><span id="userName" class="hide-sm">Parent</span></button>
+        <div class="menu-pop card" id="userMenuPop" hidden>
+          <div class="who"><b id="userFull">Parent</b><small id="userHandle"></small></div>
+          <button class="nav" id="signOut" type="button"><svg class="i"><use href="#i-out"/></svg>Sign out</button>
+        </div>
+      </div>
+    </div>
+    <!-- Staff-side controls -->
+    <div id="staffControls" class="row" hidden>
+      <a class="btn subtle" href="#/"><svg class="i"><use href="#i-back"/></svg><span class="hide-sm">Parent site</span></a>
+      <button class="btn ghost" id="lockStaff" type="button" hidden><svg class="i"><use href="#i-lock"/></svg><span class="hide-sm">Lock</span></button>
+    </div>
+  </div>
+</header>
+
+<!-- ============ PARENT SITE ============ -->
+<div id="parentApp">
+  <nav class="mobile-nav" aria-label="Parent sections">
+    <a class="nav" href="#/" data-pnav="chat"><svg class="i"><use href="#i-chat"/></svg>Ask</a>
+    <a class="nav" href="#/updates" data-pnav="updates"><svg class="i"><use href="#i-bell"/></svg>Updates <span class="badge" data-unread hidden></span></a>
+    <a class="nav" href="#/questions" data-pnav="questions"><svg class="i"><use href="#i-help"/></svg>My questions</a>
+    <a class="nav" href="#/staff"><svg class="i"><use href="#i-shield"/></svg>Staff</a>
+  </nav>
+  <div class="shell">
+    <aside class="side" aria-label="Parent sections">
+      <a class="nav" href="#/" data-pnav="chat"><svg class="i"><use href="#i-chat"/></svg>Ask a question</a>
+      <a class="nav" href="#/updates" data-pnav="updates"><svg class="i"><use href="#i-bell"/></svg>Policy updates <span class="badge" data-unread hidden></span></a>
+      <a class="nav" href="#/questions" data-pnav="questions"><svg class="i"><use href="#i-help"/></svg>My questions</a>
+      <div class="nav-label">About</div>
+      <p style="padding:0 12px;font-size:13px;color:var(--muted)">Answers come only from approved school documents. Anything the assistant can't answer is sent to school staff.</p>
+      <p style="padding:10px 12px 0;font-size:12px;color:var(--faint)" id="ragStatus">Checking retrieval setup…</p>
+    </aside>
+
+    <main>
+      <!-- Chat -->
+      <section class="card chat" data-pview="chat">
+        <div class="chat-head">
+          <span class="avatar"><svg class="i"><use href="#i-chat"/></svg></span>
+          <div><b>School Assistant</b><small><span class="dot"></span>Answers from approved school information</small></div>
+          <span class="spacer"></span>
+          <button class="btn subtle sm" id="clearChat" type="button" title="Start a new conversation"><svg class="i"><use href="#i-refresh"/></svg><span class="hide-sm">New chat</span></button>
+        </div>
+        <div class="msgs" id="msgs" aria-live="polite">
+          <div class="welcome" id="welcome">
+            <div class="avatar"><svg class="i" style="width:26px;height:26px"><use href="#i-cap"/></svg></div>
+            <h2>Hi! How can we help today?</h2>
+            <p>Ask about school timings, holidays, admissions, fees or events. Please don't share personal student details.</p>
+            <div class="chips">
+              <button class="chip" type="button">What are the school timings?</button>
+              <button class="chip" type="button">When are the next holidays?</button>
+              <button class="chip" type="button">How do admissions work?</button>
+              <button class="chip" type="button">How can I contact the office?</button>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <form id="chatForm">
+            <textarea id="question" rows="1" required minlength="3" maxlength="500" placeholder="Type your question…" aria-label="Your question"></textarea>
+            <button class="btn" id="sendBtn" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button>
+          </form>
+          <div class="composer-note"><span>Enter to send · Shift+Enter for a new line</span><span id="charCount">0 / 500</span></div>
+        </div>
+      </section>
+
+      <!-- Policy updates -->
+      <section data-pview="updates" hidden>
+        <div class="panel-head"><div><h2>Policy updates</h2><p>New and changed school policies that apply to you.</p></div><span class="spacer"></span><button class="btn ghost sm" data-refresh="updates" type="button"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+        <div class="card" id="updatesList"></div>
+      </section>
+
+      <!-- My questions -->
+      <section data-pview="questions" hidden>
+        <div class="panel-head"><div><h2>My questions</h2><p>Questions the assistant passed to school staff, and their replies.</p></div><span class="spacer"></span><button class="btn ghost sm" data-refresh="questions" type="button"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+        <div class="card" id="questionsList"></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ============ STAFF PORTAL ============ -->
+<div id="staffApp" hidden>
+  <section class="card lock" id="staffLock">
+    <div class="ico-box"><svg class="i" style="width:24px;height:24px"><use href="#i-shield"/></svg></div>
+    <h1>Staff portal</h1>
+    <p>Manage school information, policies and parent questions. Enter the school admin key to continue.</p>
+    <form id="unlockForm">
+      <div class="form-error" id="unlockError" hidden></div>
+      <div class="field"><label for="adminKey">Admin key</label>
+        <div class="pw"><input id="adminKey" type="password" required autocomplete="off"><button class="btn subtle icon" type="button" data-toggle-pw="adminKey" aria-label="Show key"><svg class="i"><use href="#i-eye"/></svg></button></div>
+        <span class="hint">The key is kept only in this tab and cleared when you lock or close it.</span>
+      </div>
+      <button class="btn" style="width:100%"><span class="spin"></span>Unlock portal</button>
+    </form>
+  </section>
+
+  <div id="staffMain" hidden>
+    <nav class="mobile-nav" aria-label="Staff sections">
+      <a class="nav" href="#/staff/questions" data-snav="questions">Questions <span class="badge" data-open-count hidden></span></a>
+      <a class="nav" href="#/staff/knowledge" data-snav="knowledge">Knowledge</a>
+      <a class="nav" href="#/staff/documents" data-snav="documents">Documents</a>
+      <a class="nav" href="#/staff/policies" data-snav="policies">Policies</a>
+      <a class="nav" href="#/staff/conflicts" data-snav="conflicts">Conflicts</a>
+      <a class="nav" href="#/staff/parents" data-snav="parents">Parents</a>
+    </nav>
+    <div class="shell">
+      <aside class="side" aria-label="Staff sections">
+        <div class="nav-label" style="padding-top:0">Inbox</div>
+        <a class="nav" href="#/staff/questions" data-snav="questions"><svg class="i"><use href="#i-inbox"/></svg>Parent questions <span class="badge" data-open-count hidden></span></a>
+        <div class="nav-label">Content</div>
+        <a class="nav" href="#/staff/knowledge" data-snav="knowledge"><svg class="i"><use href="#i-book"/></svg>Knowledge base</a>
+        <a class="nav" href="#/staff/documents" data-snav="documents"><svg class="i"><use href="#i-file"/></svg>Documents</a>
+        <a class="nav" href="#/staff/policies" data-snav="policies"><svg class="i"><use href="#i-shield"/></svg>Policies</a>
+        <a class="nav" href="#/staff/conflicts" data-snav="conflicts"><svg class="i"><use href="#i-alert"/></svg>Conflicts</a>
+        <div class="nav-label">Accounts</div>
+        <a class="nav" href="#/staff/parents" data-snav="parents"><svg class="i"><use href="#i-users"/></svg>Parent accounts</a>
+      </aside>
+
+      <main>
+        <div class="stats">
+          <button class="card stat" type="button" data-go="questions"><small>Open questions</small><b id="statOpen">–</b></button>
+          <button class="card stat" type="button" data-go="knowledge"><small>FAQ entries</small><b id="statFaq">–</b></button>
+          <button class="card stat" type="button" data-go="documents"><small>Documents</small><b id="statDocs">–</b></button>
+          <button class="card stat" type="button" data-go="policies"><small>Drafts to review</small><b id="statDrafts">–</b></button>
+        </div>
+
+        <section data-sview="questions">
+          <div class="panel-head"><div><h2>Parent questions</h2><p>Questions the assistant couldn't answer. Assign them and send a verified reply.</p></div><span class="spacer"></span><button class="btn ghost sm" data-refresh="squestions" type="button"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+          <div class="tabs" role="tablist" id="qTabs" style="margin-bottom:12px">
+            <button class="tab" role="tab" data-filter="active" aria-selected="true">Needs action</button>
+            <button class="tab" role="tab" data-filter="resolved" aria-selected="false">Resolved</button>
+            <button class="tab" role="tab" data-filter="all" aria-selected="false">All</button>
+          </div>
+          <div class="card" id="queue"></div>
+        </section>
+
+        <section data-sview="knowledge" hidden>
+          <div class="panel-head"><div><h2>Knowledge base</h2><p>Approved answers the assistant can use. Only non-personal school information.</p></div><span class="spacer"></span><button class="btn" data-open="dlgFaq" type="button"><svg class="i"><use href="#i-plus"/></svg>Add entry</button></div>
+          <input id="faqSearch" type="search" placeholder="Search entries…" style="margin-bottom:12px">
+          <div class="card" id="faqList"></div>
+        </section>
+
+        <section data-sview="documents" hidden>
+          <div class="panel-head"><div><h2>Documents</h2><p>School documents indexed for search. PDF, DOCX, TXT or MD, up to 5 MB.</p></div><span class="spacer"></span><button class="btn" data-open="dlgDoc" type="button"><svg class="i"><use href="#i-upload"/></svg>Upload document</button></div>
+          <div class="card" id="docList"></div>
+        </section>
+
+        <section data-sview="policies" hidden>
+          <div class="panel-head"><div><h2>Policies</h2><p>Upload a draft, then approve it to publish on its effective date. Reuse the policy key for revisions.</p></div><span class="spacer"></span><button class="btn" data-open="dlgPolicy" type="button"><svg class="i"><use href="#i-upload"/></svg>Upload draft</button></div>
+          <div class="card" id="policyList"></div>
+        </section>
+
+        <section data-sview="conflicts" hidden>
+          <div class="panel-head"><div><h2>Knowledge conflicts</h2><p>Older FAQ or document entries that may contradict a policy. Review these before approving a policy.</p></div><span class="spacer"></span><button class="btn ghost sm" data-refresh="conflicts" type="button"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+          <div class="card" id="conflictList"></div>
+        </section>
+
+        <section data-sview="parents" hidden>
+          <div class="panel-head"><div><h2>Parent accounts</h2><p>Create sign-in accounts for parents. Share the temporary password with them privately.</p></div></div>
+          <div class="card" style="padding:22px;max-width:560px">
+            <form id="parentForm">
+              <div class="grid2">
+                <div class="field"><label for="newUsername">Username</label><input id="newUsername" required autocomplete="off"></div>
+                <div class="field"><label for="newDisplay">Display name</label><input id="newDisplay" required autocomplete="off"></div>
+              </div>
+              <div class="field"><label for="newPassword">Temporary password</label>
+                <div class="pw"><input id="newPassword" type="password" required minlength="12" autocomplete="new-password"><button class="btn subtle icon" type="button" data-toggle-pw="newPassword" aria-label="Show password"><svg class="i"><use href="#i-eye"/></svg></button></div>
+                <span class="hint">At least 12 characters.</span>
+              </div>
+              <div class="row"><button class="btn"><span class="spin"></span><svg class="i"><use href="#i-plus"/></svg>Create account</button><button class="btn ghost" type="button" id="genPassword">Generate password</button></div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DIALOGS ============ -->
+<dialog id="dlgSignIn" aria-labelledby="signInTitle">
+  <div class="dlg-head"><div><h2 id="signInTitle">Parent sign in</h2><p>Use the account your school created for you.</p></div><span class="spacer"></span><button class="btn subtle icon" data-close type="button" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <form class="dlg-body" id="signInForm">
+    <div class="form-error" id="signInError" hidden></div>
+    <div class="field"><label for="signSchool">School code</label><input id="signSchool" value="demo" required maxlength="80" autocomplete="off"><span class="hint">Provided by your school. Demo code: <b>demo</b></span></div>
+    <div class="field"><label for="signUser">Username</label><input id="signUser" required autocomplete="username"></div>
+    <div class="field"><label for="signPass">Password</label>
+      <div class="pw"><input id="signPass" type="password" required autocomplete="current-password"><button class="btn subtle icon" type="button" data-toggle-pw="signPass" aria-label="Show password"><svg class="i"><use href="#i-eye"/></svg></button></div>
+    </div>
+    <button class="btn" style="width:100%"><span class="spin"></span>Sign in</button>
+    <p style="font-size:12px;color:var(--muted);text-align:center;margin-top:12px">You can ask general questions without signing in. Sign in to see policy updates and replies from staff.</p>
+  </form>
+</dialog>
+
+<dialog id="dlgFaq" aria-labelledby="faqTitle">
+  <div class="dlg-head"><div><h2 id="faqTitle">Add knowledge entry</h2><p>An approved answer the assistant can quote.</p></div><span class="spacer"></span><button class="btn subtle icon" data-close type="button" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <form class="dlg-body" id="faqForm">
+    <div class="field"><label for="faqTopic">Topic</label><input id="faqTopic" required placeholder="e.g. Uniform"></div>
+    <div class="field"><label for="faqAnswer">Approved answer</label><textarea id="faqAnswer" required></textarea></div>
+    <div class="field"><label for="faqSource">Source</label><input id="faqSource" required placeholder="e.g. School handbook 2026"></div>
+    <div class="dlg-foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn"><span class="spin"></span>Add entry</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgDoc" aria-labelledby="docTitleH">
+  <div class="dlg-head"><div><h2 id="docTitleH">Upload document</h2><p>The text is extracted and indexed for search. Scanned PDFs aren't supported.</p></div><span class="spacer"></span><button class="btn subtle icon" data-close type="button" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <form class="dlg-body" id="docForm">
+    <div class="field"><label for="docTitle">Title</label><input id="docTitle" placeholder="e.g. School handbook"></div>
+    <div class="field"><label>File</label>
+      <div class="drop"><input id="docFile" type="file" accept=".pdf,.docx,.txt,.md" required aria-label="Choose document"><svg class="i" style="width:26px;height:26px"><use href="#i-upload"/></svg><div><b>Choose a file</b> or drag it here</div><small>PDF, DOCX, TXT, MD · max 5 MB</small><div class="file"></div></div>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn"><span class="spin"></span>Upload &amp; index</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgPolicy" aria-labelledby="policyTitleH">
+  <div class="dlg-head"><div><h2 id="policyTitleH">Upload policy draft</h2><p>Drafts need approval before parents see them.</p></div><span class="spacer"></span><button class="btn subtle icon" data-close type="button" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <form class="dlg-body" id="policyForm">
+    <div class="grid2">
+      <div class="field"><label for="policyKey">Policy key</label><input id="policyKey" required placeholder="fee-policy" list="policyKeys"><datalist id="policyKeys"></datalist></div>
+      <div class="field"><label for="policyDate">Effective date</label><input id="policyDate" type="date" required></div>
+    </div>
+    <div class="field"><label for="policyTitle">Title</label><input id="policyTitle" required placeholder="Fee policy"></div>
+    <div class="field"><label>File</label>
+      <div class="drop"><input id="policyFile" type="file" accept=".pdf,.docx,.txt,.md" required aria-label="Choose policy file"><svg class="i" style="width:26px;height:26px"><use href="#i-upload"/></svg><div><b>Choose a file</b> or drag it here</div><small>PDF, DOCX, TXT, MD</small><div class="file"></div></div>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn"><span class="spin"></span>Upload draft</button></div>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+const $=id=>document.getElementById(id),
+  esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+  icon=(n,style='')=>`<svg class="i" ${style?`style="${style}"`:''}><use href="#i-${n}"/></svg>`;
+const state={parentToken:'',parent:null,adminKey:'',staffFilter:'active',faq:[],questions:[]};
+
+async function req(path,opt={}){
+  const r=await fetch(path,opt);let v={};
+  try{v=await r.json()}catch(e){}
+  if(!r.ok){const d=v.detail;throw Error(Array.isArray(d)?d.map(x=>x.msg).join('; '):(d||'Request failed ('+r.status+')'))}
+  return v;
+}
+const parentHeaders=(extra={})=>({...extra,...(state.parentToken?{'Authorization':'Bearer '+state.parentToken}:{})});
+const adminHeaders=(extra={})=>({...extra,'X-Admin-Key':state.adminKey});
+
+function toast(msg,kind='ok'){
+  const t=document.createElement('div');t.className='toast '+kind;
+  t.innerHTML=icon(kind==='bad'?'alert':'check')+`<span>${esc(msg)}</span>`;
+  $('toasts').append(t);setTimeout(()=>t.remove(),4200);
+}
+async function busy(btn,fn){btn?.classList.add('loading');try{return await fn()}finally{btn?.classList.remove('loading')}}
+const empty=(ic,title,text)=>`<div class="empty"><div class="ico-box">${icon(ic,'width:22px;height:22px')}</div><b>${esc(title)}</b>${esc(text)}</div>`;
+const skeleton=n=>'<div class="skeleton"></div>'.repeat(n);
+function pillFor(status){
+  const s=String(status||'').toLowerCase();
+  const kind={open:'warn',new:'warn',draft:'warn',assigned:'brand',resolved:'ok',approved:'ok',active:'ok',rejected:'bad',closed:'',superseded:''}[s]??'';
+  const label=s.replace(/_/g,' ');
+  return `<span class="pill ${kind}">${esc(label.charAt(0).toUpperCase()+label.slice(1))}</span>`;
+}
+const fmtDate=d=>{if(!d)return'';const x=new Date(d.length<=10?d+'T00:00:00':d.replace(' ','T'));return isNaN(x)?d:x.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})};
+
+/* ---------- Routing ---------- */
+function route(){
+  const parts=(location.hash.replace(/^#\/?/,'')||'').split('/');
+  const staff=parts[0]==='staff';
+  $('parentApp').hidden=staff;$('staffApp').hidden=!staff;
+  $('parentControls').hidden=staff;$('staffControls').hidden=!staff;
+  $('brandSub').textContent=staff?'Staff portal':'Parent Assistant';
+  if(staff){
+    const unlocked=!!state.adminKey;
+    $('staffLock').hidden=unlocked;$('staffMain').hidden=!unlocked;$('lockStaff').hidden=!unlocked;
+    if(!unlocked){setTimeout(()=>$('adminKey').focus(),0);return}
+    showStaff(parts[1]||'questions');
+  }else{
+    showParent(parts[0]||'chat');
+  }
+}
+window.addEventListener('hashchange',route);
+
+/* ---------- Parent site ---------- */
+function showParent(view){
+  if(!['chat','updates','questions'].includes(view))view='chat';
+  document.querySelectorAll('[data-pview]').forEach(s=>s.hidden=s.dataset.pview!==view);
+  document.querySelectorAll('[data-pnav]').forEach(a=>{if(a.dataset.pnav===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+  if(view==='updates')loadUpdates();
+  if(view==='questions')loadMyQuestions();
+  if(view==='chat')$('question').focus({preventScroll:true});
+}
+function gate(what){
+  return `<div class="gate"><div class="ico-box">${icon('lock','width:22px;height:22px')}</div><h3>Sign in to see ${esc(what)}</h3><p>Your school creates parent accounts. Ask the office if you don't have one.</p><button class="btn" type="button" data-signin>${icon('user')}Sign in</button></div>`;
+}
+function setUnread(n){document.querySelectorAll('[data-unread]').forEach(b=>{b.hidden=!n;b.textContent=n})}
+
+async function loadUpdates(){
+  const box=$('updatesList');
+  if(!state.parentToken){box.innerHTML=gate('policy updates');return}
+  box.innerHTML=skeleton(3);
+  try{
+    const a=await req('/api/notifications/mine',{headers:parentHeaders()});
+    setUnread(a.filter(x=>!x.is_read).length);
+    box.innerHTML=a.length?'<div class="list">'+a.map(x=>`<div class="li ${x.is_read?'':'unread'}">
+      <div class="ico-box">${icon('file')}</div>
+      <div class="li-body"><div class="li-title">${esc(x.title)} <span class="pill">v${esc(x.version)}</span>${x.is_read?'':'<span class="pill brand">New</span>'}</div>
+      <div class="li-sub">Effective ${esc(fmtDate(x.effective_date))}</div></div>
+      ${x.is_read?'':`<div class="li-actions"><button class="btn ghost sm" data-read="${x.policy_id}">${icon('check')}Mark as read</button></div>`}
+    </div>`).join('')+'</div>':empty('bell','No policy updates','When the school publishes a policy change it will appear here.');
+  }catch(e){box.innerHTML=empty('alert','Couldn’t load updates',e.message)}
+}
+async function loadMyQuestions(){
+  const box=$('questionsList');
+  if(!state.parentToken){box.innerHTML=gate('your questions');return}
+  box.innerHTML=skeleton(3);
+  try{
+    const a=await req('/api/parent/questions',{headers:parentHeaders()});
+    box.innerHTML=a.length?'<div class="list">'+a.map(x=>`<div class="li">
+      <div class="ico-box">${icon('help')}</div>
+      <div class="li-body"><div class="li-title">Question #${x.id} ${pillFor(x.status)}</div>
+      <div class="li-text">${esc(x.question)}</div>
+      ${x.resolution?`<div class="response"><b>Reply from school staff</b>${esc(x.resolution)}</div>`:'<div class="li-sub">Waiting for a reply from staff.</div>'}</div>
+    </div>`).join('')+'</div>':empty('help','No questions yet','If the assistant can’t answer something, it is sent to staff and tracked here.');
+  }catch(e){box.innerHTML=empty('alert','Couldn’t load questions',e.message)}
+}
+$('updatesList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-read]');if(!b)return;
+  try{await busy(b,()=>req('/api/notifications/mine/'+b.dataset.read+'/read',{method:'POST',headers:parentHeaders()}));loadUpdates()}catch(err){toast(err.message,'bad')}
+});
+
+function setParent(p){
+  state.parent=p;
+  $('openSignIn').hidden=!!p;$('userMenu').hidden=!p;
+  if(p){
+    const name=p.display_name||p.username;
+    $('userName').textContent=name;$('userFull').textContent=name;$('userHandle').textContent='@'+p.username;
+    $('userInitial').textContent=name.trim().charAt(0).toUpperCase()||'P';
+  }else setUnread(0);
+}
+async function refreshUnread(){
+  if(!state.parentToken)return;
+  try{const a=await req('/api/notifications/mine',{headers:parentHeaders()});setUnread(a.filter(x=>!x.is_read).length)}catch(e){}
+}
+$('signInForm').onsubmit=async e=>{
+  e.preventDefault();$('signInError').hidden=true;
+  const btn=e.submitter||e.target.querySelector('button:not([type])');
+  try{
+    await busy(btn,async()=>{
+      const r=await req('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({school_code:$('signSchool').value.trim(),username:$('signUser').value.trim(),password:$('signPass').value})});
+      state.parentToken=r.access_token;saveToken();
+      let me=null;try{me=await req('/api/auth/me',{headers:parentHeaders()})}catch(e){me={username:$('signUser').value.trim()}}
+      setParent(me);
+    });
+    $('signPass').value='';$('dlgSignIn').close();
+    toast('Welcome, '+(state.parent.display_name||state.parent.username));
+    refreshUnread();route();
+  }catch(err){$('signInError').textContent=err.message;$('signInError').hidden=false}
+};
+$('signOut').onclick=async()=>{
+  closeMenu();
+  try{await req('/api/auth/logout',{method:'POST',headers:parentHeaders()})}catch(e){}
+  state.parentToken='';saveToken();setParent(null);toast('Signed out');route();
+};
+// The parent session survives reloads within this tab only; it is cleared when the tab closes.
+function saveToken(){try{state.parentToken?sessionStorage.setItem('parentToken',state.parentToken):sessionStorage.removeItem('parentToken')}catch(e){}}
+async function restoreParent(){
+  try{state.parentToken=sessionStorage.getItem('parentToken')||''}catch(e){}
+  if(!state.parentToken)return;
+  try{setParent(await req('/api/auth/me',{headers:parentHeaders()}));refreshUnread()}
+  catch(e){state.parentToken='';saveToken()}
+}
+function closeMenu(){$('userMenuPop').hidden=true;$('userMenuBtn').setAttribute('aria-expanded','false')}
+$('userMenuBtn').onclick=e=>{e.stopPropagation();const open=$('userMenuPop').hidden;$('userMenuPop').hidden=!open;$('userMenuBtn').setAttribute('aria-expanded',String(open))};
+document.addEventListener('click',e=>{if(!e.target.closest('#userMenu'))closeMenu()});
+function openSignIn(){$('signInError').hidden=true;$('dlgSignIn').showModal();setTimeout(()=>($('signUser').value?$('signPass'):$('signUser')).focus(),30)}
+$('openSignIn').onclick=openSignIn;
+document.addEventListener('click',e=>{if(e.target.closest('[data-signin]'))openSignIn()});
+
+/* Chat */
+const msgs=$('msgs'),question=$('question');
+function addBubble(html,who,extra=''){
+  $('welcome')?.remove();
+  const row=document.createElement('div');row.className='bubble-row '+who;
+  row.innerHTML=(who==='bot'?`<span class="avatar">${icon('cap','width:15px;height:15px')}</span>`:`<span class="avatar">${esc(state.parent?(state.parent.display_name||state.parent.username).charAt(0).toUpperCase():'')||icon('user','width:15px;height:15px')}</span>`)+`<div><div class="bubble ${extra}">${html}</div></div>`;
+  msgs.append(row);msgs.scrollTop=msgs.scrollHeight;return row;
+}
+async function ask(q){
+  q=q.trim();if(q.length<3){toast('Please type a longer question','bad');return}
+  addBubble(esc(q),'me');question.value='';autoGrow();
+  const typing=addBubble('<i></i><i></i><i></i>','bot');typing.classList.add('typing');
+  $('sendBtn').disabled=true;
+  try{
+    const r=await req('/api/chat',{method:'POST',headers:parentHeaders({'Content-Type':'application/json'}),body:JSON.stringify({question:q})});
+    typing.remove();
+    if(r.needs_staff){
+      addBubble(`${esc(r.answer)}<div class="meta"><span class="pill warn">Sent to staff${r.escalation_id?' · #'+r.escalation_id:''}</span>${state.parentToken?'<a href="#/questions" class="meta-label">Track in My questions →</a>':'<button class="btn subtle sm" data-signin type="button">Sign in to track replies</button>'}</div>`,'bot','escalated');
+    }else{
+      const srcs=(r.sources&&r.sources.length?r.sources:(r.source?[{source:r.source}]:[]));
+      const seen=new Set();
+      const chips=srcs.filter(s=>{const k=s.source+'|'+(s.topic||'');if(seen.has(k))return false;seen.add(k);return true})
+        .map(s=>`<span class="src" title="${s.distance!=null?'Match distance '+esc(s.distance):''}">${icon('book','width:12px;height:12px')}<b>${esc(s.source)}</b>${s.topic?' · '+esc(s.topic):''}</span>`).join('');
+      addBubble(`${esc(r.answer)}${chips?`<div class="meta"><span class="meta-label">Sources</span>${chips}</div>`:''}`,'bot');
+    }
+  }catch(err){typing.remove();addBubble(esc(err.message),'bot','error')}
+  finally{$('sendBtn').disabled=false;question.focus()}
+}
+$('chatForm').onsubmit=e=>{e.preventDefault();ask(question.value)};
+question.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('chatForm').requestSubmit()}});
+function autoGrow(){question.style.height='auto';question.style.height=Math.min(question.scrollHeight,160)+'px';$('charCount').textContent=question.value.length+' / 500'}
+question.addEventListener('input',autoGrow);
+msgs.addEventListener('click',e=>{const c=e.target.closest('.chip');if(c)ask(c.textContent)});
+const welcomeHTML=$('welcome').outerHTML;
+$('clearChat').onclick=()=>{msgs.innerHTML=welcomeHTML;question.focus()};
+
+async function loadHealth(){
+  try{const h=await req('/api/health');
+    $('ragStatus').textContent=(h.vector_search_enabled?'Semantic search enabled':'Keyword search mode')+' · '+(h.local_generator_configured?'local AI answers':'quoted answers');
+  }catch(e){$('ragStatus').textContent='Retrieval status unavailable'}
+}
+
+/* ---------- Staff portal ---------- */
+const sviews=['questions','knowledge','documents','policies','conflicts','parents'];
+function showStaff(view){
+  if(!sviews.includes(view))view='questions';
+  document.querySelectorAll('[data-sview]').forEach(s=>s.hidden=s.dataset.sview!==view);
+  document.querySelectorAll('[data-snav]').forEach(a=>{if(a.dataset.snav===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+  ({questions:loadQueue,knowledge:loadFaq,documents:loadDocs,policies:loadPolicies,conflicts:loadConflicts}[view]||(()=>{}))();
+}
+document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>location.hash='#/staff/'+b.dataset.go);
+
+$('unlockForm').onsubmit=async e=>{
+  e.preventDefault();$('unlockError').hidden=true;
+  const key=$('adminKey').value,btn=e.target.querySelector('button:not([type])');
+  try{
+    await busy(btn,()=>req('/api/knowledge',{headers:{'X-Admin-Key':key}}));
+    state.adminKey=key;$('adminKey').value='';toast('Staff portal unlocked');
+    loadStats();route();
+  }catch(err){$('unlockError').textContent=/401|403|invalid/i.test(err.message)?'That admin key isn’t valid.':err.message;$('unlockError').hidden=false}
+};
+$('lockStaff').onclick=()=>{state.adminKey='';toast('Staff portal locked');route()};
+
+async function loadStats(){
+  const h={headers:adminHeaders()};
+  const [q,f,d,p]=await Promise.allSettled([req('/api/staff/questions',h),req('/api/knowledge',h),req('/api/documents',h),req('/api/policies',h)]);
+  const set=(id,r,fn)=>{$(id).textContent=r.status==='fulfilled'?fn(r.value):'–'};
+  set('statOpen',q,a=>openCount(a));set('statFaq',f,a=>a.length);set('statDocs',d,a=>a.length);set('statDrafts',p,a=>a.filter(x=>x.status==='draft').length);
+  if(q.status==='fulfilled')setOpenBadge(openCount(q.value));
+}
+const openCount=a=>a.filter(x=>x.status!=='resolved'&&x.status!=='closed').length;
+function setOpenBadge(n){document.querySelectorAll('[data-open-count]').forEach(b=>{b.hidden=!n;b.textContent=n})}
+
+/* Questions queue */
+async function loadQueue(){
+  const box=$('queue');box.innerHTML=skeleton(3);
+  try{state.questions=await req('/api/staff/questions',{headers:adminHeaders()});setOpenBadge(openCount(state.questions));$('statOpen').textContent=openCount(state.questions);renderQueue()}
+  catch(e){box.innerHTML=empty('alert','Couldn’t load questions',e.message)}
+}
+function renderQueue(){
+  const f=state.staffFilter,list=state.questions.filter(x=>f==='all'||(f==='resolved'?['resolved','closed'].includes(x.status):!['resolved','closed'].includes(x.status)));
+  $('queue').innerHTML=list.length?'<div class="list">'+list.map(x=>`<div class="li" data-q="${x.id}">
+    <div class="ico-box">${icon('help')}</div>
+    <div class="li-body">
+      <div class="li-title">#${x.id} ${pillFor(x.status)}${x.created_at?`<span class="li-sub" style="margin:0">${esc(fmtDate(x.created_at))}</span>`:''}</div>
+      <div class="li-text">${esc(x.question)}</div>
+      <div class="li-sub">${x.assigned_to?'Assigned to <b>'+esc(x.assigned_to)+'</b>':'Unassigned'}</div>
+      ${x.resolution?`<div class="response"><b>Staff reply</b>${esc(x.resolution)}</div>`:''}
+      <details class="manage" ${x.status!=='resolved'&&!x.resolution&&list.length===1?'open':''}><summary>${icon('chat','width:14px;height:14px')}${x.status==='resolved'?'Edit reply':'Assign or reply'}</summary>
+        <div class="field"><label>Assign to</label><input data-assignee maxlength="80" placeholder="Staff member name" value="${esc(x.assigned_to||'')}"></div>
+        <div class="field"><label>Verified reply to parent</label><textarea data-resolution maxlength="2000" placeholder="Write the answer the parent will see">${esc(x.resolution||'')}</textarea></div>
+        <div class="row"><button class="btn ghost sm" data-act="assigned"><span class="spin"></span>Save &amp; assign</button><button class="btn ok sm" data-act="resolved"><span class="spin"></span>${icon('check')}Resolve</button><button class="btn subtle sm" data-history type="button">View history</button></div>
+        <div class="history" data-events hidden></div>
+      </details>
+    </div></div>`).join('')+'</div>'
+    :empty('inbox',f==='resolved'?'Nothing resolved yet':'All caught up','No questions in this view.');
+}
+$('qTabs').onclick=e=>{const t=e.target.closest('[data-filter]');if(!t)return;state.staffFilter=t.dataset.filter;$('qTabs').querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',String(b===t)));renderQueue()};
+$('queue').addEventListener('click',async e=>{
+  const li=e.target.closest('[data-q]');if(!li)return;const id=li.dataset.q;
+  const act=e.target.closest('[data-act]');
+  if(act){
+    const resolution=li.querySelector('[data-resolution]').value.trim();
+    if(act.dataset.act==='resolved'&&!resolution){toast('Write a reply before resolving','bad');li.querySelector('[data-resolution]').focus();return}
+    try{await busy(act,()=>req('/api/staff/questions/'+id,{method:'PATCH',headers:adminHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({status:act.dataset.act,assigned_to:li.querySelector('[data-assignee]').value.trim(),resolution})}));
+      toast(act.dataset.act==='resolved'?'Question resolved':'Question updated');loadQueue()}catch(err){toast(err.message,'bad')}
+  }
+  const hb=e.target.closest('[data-history]');
+  if(hb){
+    const box=li.querySelector('[data-events]');
+    if(!box.hidden){box.hidden=true;hb.textContent='View history';return}
+    try{const a=await req('/api/staff/questions/'+id+'/history',{headers:adminHeaders()});
+      box.innerHTML=a.length?a.map(x=>`<div><b>${esc(x.action)}</b> · ${esc(fmtDate(x.created_at))}${x.detail?' · '+esc(x.detail):''}</div>`).join(''):'No events yet';
+      box.hidden=false;hb.textContent='Hide history'}catch(err){toast(err.message,'bad')}
+  }
+});
+
+/* Knowledge base */
+async function loadFaq(){
+  const box=$('faqList');box.innerHTML=skeleton(3);
+  try{state.faq=await req('/api/knowledge',{headers:adminHeaders()});$('statFaq').textContent=state.faq.length;renderFaq()}
+  catch(e){box.innerHTML=empty('alert','Couldn’t load entries',e.message)}
+}
+function renderFaq(){
+  const q=$('faqSearch').value.trim().toLowerCase();
+  const list=state.faq.filter(x=>!q||(x.topic+' '+x.answer+' '+x.source).toLowerCase().includes(q));
+  $('faqList').innerHTML=list.length?'<div class="list">'+list.map(x=>`<div class="li">
+    <div class="ico-box">${icon('book')}</div>
+    <div class="li-body"><div class="li-title">${esc(x.topic)}</div><div class="li-text">${esc(x.answer)}</div><div class="li-sub">Source: ${esc(x.source)}</div></div>
+    <div class="li-actions"><button class="btn danger sm" data-del-faq="${x.id}" data-name="${esc(x.topic)}">${icon('trash')}Delete</button></div>
+  </div>`).join('')+'</div>':empty('book',q?'No matching entries':'No entries yet',q?'Try a different search.':'Add approved answers for common parent questions.');
+}
+$('faqSearch').addEventListener('input',renderFaq);
+$('faqList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-del-faq]');if(!b)return;
+  if(!confirm('Delete “'+b.dataset.name+'”? The assistant will stop using it.'))return;
+  try{await busy(b,()=>req('/api/knowledge/'+b.dataset.delFaq,{method:'DELETE',headers:adminHeaders()}));toast('Entry deleted');loadFaq()}catch(err){toast(err.message,'bad')}
+});
+$('faqForm').onsubmit=async e=>{
+  e.preventDefault();const btn=e.target.querySelector('button:not([type])');
+  try{await busy(btn,()=>req('/api/knowledge',{method:'POST',headers:adminHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({topic:$('faqTopic').value.trim(),answer:$('faqAnswer').value.trim(),source:$('faqSource').value.trim()})}));
+    e.target.reset();$('dlgFaq').close();toast('Entry added');loadFaq()}catch(err){toast(err.message,'bad')}
+};
+
+/* Documents */
+async function loadDocs(){
+  const box=$('docList');box.innerHTML=skeleton(2);
+  try{const a=await req('/api/documents',{headers:adminHeaders()});$('statDocs').textContent=a.length;
+    box.innerHTML=a.length?'<div class="list">'+a.map(d=>`<div class="li">
+      <div class="ico-box">${icon('file')}</div>
+      <div class="li-body"><div class="li-title">${esc(d.title)}</div><div class="li-sub">${esc(d.filename)} · ${Number(d.characters||0).toLocaleString()} characters</div></div>
+      <div class="li-actions"><button class="btn danger sm" data-del-doc="${d.id}" data-name="${esc(d.title)}">${icon('trash')}Delete</button></div>
+    </div>`).join('')+'</div>':empty('file','No documents yet','Upload handbooks, calendars and other approved documents.');
+  }catch(e){box.innerHTML=empty('alert','Couldn’t load documents',e.message)}
+}
+$('docList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-del-doc]');if(!b)return;
+  if(!confirm('Delete “'+b.dataset.name+'” and remove it from search?'))return;
+  try{await busy(b,()=>req('/api/documents/'+b.dataset.delDoc,{method:'DELETE',headers:adminHeaders()}));toast('Document deleted');loadDocs()}catch(err){toast(err.message,'bad')}
+});
+$('docForm').onsubmit=async e=>{
+  e.preventDefault();const file=$('docFile').files[0];if(!file)return;
+  if(file.size>5*1024*1024){toast('File is larger than 5 MB','bad');return}
+  const btn=e.target.querySelector('button:not([type])'),form=new FormData();
+  form.append('file',file);form.append('title',$('docTitle').value.trim()||file.name);
+  try{const d=await busy(btn,()=>req('/api/documents',{method:'POST',headers:adminHeaders(),body:form}));
+    resetForm(e.target);$('dlgDoc').close();toast('Uploaded '+d.filename+(d.vector_index_updated?' and indexed':''));loadDocs();loadHealth()}catch(err){toast(err.message,'bad')}
+};
+
+/* Policies */
+async function loadPolicies(){
+  const box=$('policyList');box.innerHTML=skeleton(3);
+  try{const a=await req('/api/policies',{headers:adminHeaders()});
+    $('statDrafts').textContent=a.filter(x=>x.status==='draft').length;
+    $('policyKeys').innerHTML=[...new Set(a.map(x=>x.policy_key))].map(k=>`<option value="${esc(k)}">`).join('');
+    box.innerHTML=a.length?'<div class="list">'+a.map(x=>`<div class="li">
+      <div class="ico-box">${icon('shield')}</div>
+      <div class="li-body"><div class="li-title">${esc(x.title)} <span class="pill">v${esc(x.version)}</span>${pillFor(x.status)}</div>
+      <div class="li-sub">Key <b>${esc(x.policy_key)}</b> · Effective ${esc(fmtDate(x.effective_date))} · ${esc(x.filename)}</div></div>
+      ${x.status==='draft'?`<div class="li-actions"><button class="btn ok sm" data-review="${x.id}" data-approve="true"><span class="spin"></span>${icon('check')}Approve</button><button class="btn danger sm" data-review="${x.id}" data-approve="false"><span class="spin"></span>Reject</button></div>`:''}
+    </div>`).join('')+'</div>':empty('shield','No policies yet','Upload a policy draft to start the review process.');
+  }catch(e){box.innerHTML=empty('alert','Couldn’t load policies',e.message)}
+}
+$('policyList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-review]');if(!b)return;
+  const approve=b.dataset.approve==='true';
+  if(!approve&&!confirm('Reject this policy draft?'))return;
+  try{await busy(b,()=>req('/api/policies/'+b.dataset.review+'/review',{method:'POST',headers:adminHeaders({'Content-Type':'application/json'}),body:JSON.stringify({approve})}));
+    toast(approve?'Policy approved':'Policy rejected');loadPolicies()}catch(err){toast(err.message,'bad')}
+});
+$('policyForm').onsubmit=async e=>{
+  e.preventDefault();const btn=e.target.querySelector('button:not([type])'),d=new FormData();
+  d.append('policy_key',$('policyKey').value.trim());d.append('title',$('policyTitle').value.trim());d.append('effective_date',$('policyDate').value);d.append('file',$('policyFile').files[0]);
+  try{await busy(btn,()=>req('/api/policies',{method:'POST',headers:adminHeaders(),body:d}));
+    resetForm(e.target);$('dlgPolicy').close();toast('Draft uploaded. Check conflicts, then approve.');loadPolicies()}catch(err){toast(err.message,'bad')}
+};
+
+/* Conflicts */
+async function loadConflicts(){
+  const box=$('conflictList');box.innerHTML=skeleton(2);
+  try{const a=await req('/api/conflicts',{headers:adminHeaders()});
+    box.innerHTML=a.length?'<div class="list">'+a.map(x=>`<div class="li">
+      <div class="ico-box" style="background:var(--warn-soft);color:var(--warn)">${icon('alert')}</div>
+      <div class="li-body"><div class="li-title">${esc(x.policy_title)} <span class="pill">v${esc(x.version)}</span>${pillFor(x.status)}</div>
+      <div class="li-sub">May overlap with ${esc(x.legacy_type==='faq'?'FAQ entry':x.legacy_type)} #${esc(x.legacy_id)}</div></div>
+      ${x.status==='open'?`<div class="li-actions"><button class="btn danger sm" data-kind="${esc(x.legacy_type)}" data-legacy="${x.legacy_id}"><span class="spin"></span>Deactivate old entry</button></div>`:''}
+    </div>`).join('')+'</div>':empty('check','No conflicts','No overlaps between policies and older knowledge.');
+  }catch(e){box.innerHTML=empty('alert','Couldn’t load conflicts',e.message)}
+}
+$('conflictList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-legacy]');if(!b)return;
+  if(!confirm('Deactivate this older entry so parents no longer get answers from it?'))return;
+  try{await busy(b,()=>req('/api/conflicts/legacy/'+b.dataset.kind+'/'+b.dataset.legacy+'/deactivate',{method:'POST',headers:adminHeaders()}));toast('Entry deactivated');loadConflicts()}catch(err){toast(err.message,'bad')}
+});
+
+/* Parent accounts */
+$('parentForm').onsubmit=async e=>{
+  e.preventDefault();const btn=e.target.querySelector('button:not([type])');
+  try{const r=await busy(btn,()=>req('/api/auth/parents',{method:'POST',headers:adminHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({username:$('newUsername').value.trim(),display_name:$('newDisplay').value.trim(),password:$('newPassword').value})}));
+    e.target.reset();$('newPassword').type='password';toast('Account created for '+r.username)}catch(err){toast(err.message,'bad')}
+};
+$('genPassword').onclick=()=>{
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789',a=crypto.getRandomValues(new Uint32Array(16));
+  $('newPassword').value=[...a].map(n=>chars[n%chars.length]).join('');$('newPassword').type='text';
+};
+
+/* ---------- Shared UI helpers ---------- */
+document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>$(b.dataset.open).showModal());
+document.querySelectorAll('dialog').forEach(d=>{
+  d.addEventListener('click',e=>{if(e.target===d||e.target.closest('[data-close]'))d.close()});
+});
+document.querySelectorAll('[data-toggle-pw]').forEach(b=>b.onclick=()=>{const i=$(b.dataset.togglePw);i.type=i.type==='password'?'text':'password';b.setAttribute('aria-label',i.type==='password'?'Show':'Hide')});
+document.querySelectorAll('[data-refresh]').forEach(b=>b.onclick=()=>({updates:loadUpdates,questions:loadMyQuestions,squestions:loadQueue,conflicts:loadConflicts}[b.dataset.refresh])());
+document.querySelectorAll('.drop').forEach(z=>{
+  const input=z.querySelector('input'),label=z.querySelector('.file');
+  input.addEventListener('change',()=>{label.textContent=input.files[0]?input.files[0].name:''});
+  ['dragenter','dragover'].forEach(t=>z.addEventListener(t,()=>z.classList.add('over')));
+  ['dragleave','drop'].forEach(t=>z.addEventListener(t,()=>z.classList.remove('over')));
+});
+function resetForm(f){f.reset();f.querySelectorAll('.drop .file').forEach(l=>l.textContent='')}
+
+loadHealth();restoreParent().finally(route);
+</script>
+</body>
+</html>
