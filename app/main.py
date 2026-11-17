@@ -2,7 +2,8 @@ import os, sqlite3, secrets, re, io, time
 from datetime import datetime, timezone, date
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+import html
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from pydantic import BaseModel, Field
@@ -314,8 +315,18 @@ def chat(q:Question,authorization:str|None=Header(None)):
 def escalations(x_admin_key:str|None=Header(None)):
     auth(x_admin_key)
     with db() as c:return [dict(x) for x in c.execute("SELECT * FROM escalations WHERE school_id=1 ORDER BY id DESC")]
+def public_base_url(request:Request)->str:
+    """Absolute site URL for link-preview tags. Render sets RENDER_EXTERNAL_URL automatically."""
+    base=os.getenv("SCHOOL_PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or str(request.base_url)
+    return base.rstrip("/")
 @app.get("/",response_class=HTMLResponse)
-def home():return Path(__file__).with_name("index.html").read_text(encoding="utf-8")
+def home(request:Request):
+    page=Path(__file__).with_name("index.html").read_text(encoding="utf-8")
+    return page.replace("__BASE_URL__",html.escape(public_base_url(request),quote=True))
+@app.get("/og-image.png",include_in_schema=False)
+def og_image():
+    # Link-preview thumbnail (LinkedIn, Slack, WhatsApp, X). Fictional demo content only.
+    return FileResponse(Path(__file__).with_name("og-image.png"),media_type="image/png")
 
 # Policy module uses the same admin key, SQLite store and document parser.
 policies.configure(db, auth, extract_text, rebuild_index)

@@ -156,3 +156,19 @@ def test_onnx_embedder_used_when_requested(monkeypatch):
     created = []
     monkeypatch.setattr(rag, "_OnnxEmbedder", lambda: created.append(1) or "onnx-embedder")
     assert rag._embedder() == "onnx-embedder" and created == [1]
+
+
+def test_link_preview_tags_and_thumbnail(normal_client, monkeypatch):
+    monkeypatch.setenv("SCHOOL_PUBLIC_URL", "https://demo.example.org/")
+    page = normal_client.get("/").text
+    assert '<meta property="og:image" content="https://demo.example.org/og-image.png">' in page
+    assert "__BASE_URL__" not in page
+    image = normal_client.get("/og-image.png")
+    assert image.status_code == 200 and image.headers["content-type"] == "image/png"
+    assert image.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_link_preview_falls_back_to_request_url(normal_client, monkeypatch):
+    monkeypatch.delenv("SCHOOL_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    assert 'content="http://testserver/og-image.png"' in normal_client.get("/").text
