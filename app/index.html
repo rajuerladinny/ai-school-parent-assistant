@@ -101,7 +101,7 @@ textarea{resize:vertical;min-height:90px}
 .demo-bar{background:var(--brand-soft);border-bottom:1px solid var(--border);font-size:13px;color:var(--text)}
 .demo-bar .in{max-width:1200px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .demo-bar b{color:var(--brand)}
-.demo-bar .btn{margin-left:auto}
+.demo-bar .in>span:first-of-type{margin-right:auto}
 .demo-card{margin:14px 4px 0;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px}
 .demo-card h3{font-size:14px;margin:0;display:flex;align-items:center;gap:7px}
 .demo-card p{margin:0;color:var(--muted)}
@@ -114,6 +114,18 @@ textarea{resize:vertical;min-height:90px}
   .demo-bar .show-sm{display:inline-flex}
   .demo-bar .btn.ghost{display:none}
 }
+/* Guided tour (demo mode) */
+.tour-shade{position:fixed;inset:0;z-index:90}
+.tour-spot{position:fixed;z-index:91;border-radius:14px;box-shadow:0 0 0 9999px rgba(8,15,30,.62);outline:3px solid var(--brand);outline-offset:3px;transition:left .25s,top .25s,width .25s,height .25s;pointer-events:none}
+.tour-spot.center{width:0;height:0;left:50%;top:42%;outline:none}
+.tour-tip{position:fixed;z-index:92;width:min(340px,calc(100vw - 32px));background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.35);padding:16px 16px 12px}
+.tour-tip h3{font-size:16px;margin:0 0 6px}
+.tour-tip p{font-size:14px;color:var(--muted);margin:0 0 14px;line-height:1.55}
+.tour-tip .tour-row{display:flex;align-items:center;gap:8px}
+.tour-tip .tour-count{font-size:12px;color:var(--faint);margin-right:auto}
+.tour-tip .tour-dots{display:flex;gap:5px;margin-bottom:10px}
+.tour-tip .tour-dots i{width:7px;height:7px;border-radius:50%;background:var(--border-strong)}
+.tour-tip .tour-dots i.on{background:var(--brand)}
 .demo-key{margin-top:14px;padding:10px 12px;background:var(--brand-soft);border-radius:var(--radius-sm);font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .demo-key code{font-weight:700}
 .side{position:sticky;top:76px;display:flex;flex-direction:column;gap:4px}
@@ -321,6 +333,7 @@ dialog[open]{animation:dlg .18s ease-out}
     <svg class="i"><use href="#i-cap"/></svg>
     <span><b>Live demo</b><span class="long"> · Sunrise Valley School is fictional · The staff portal is read-only · Nothing you type is stored</span><span class="show-sm"> · Fictional school</span></span>
     <button class="btn sm show-sm" id="demoSignInBar" type="button">Try as demo parent</button>
+    <button class="btn subtle sm" id="tourBar" type="button"><span class="long">Take the tour</span><span class="show-sm">Tour</span></button>
     <a class="btn ghost sm" href="https://github.com/rajuerladinny/ai-school-parent-assistant" target="_blank" rel="noopener">View on GitHub</a>
   </div>
 </div>
@@ -348,6 +361,7 @@ dialog[open]{animation:dlg .18s ease-out}
         <button class="btn sm" id="demoSignIn" type="button"><span class="spin"></span>Sign in as demo parent</button>
         <p>Then look behind the scenes:</p>
         <a class="btn ghost sm" href="#/staff" id="demoStaff">Open the staff portal</a>
+        <button class="btn subtle sm" id="tourCard" type="button">▶ Take the 1-minute tour</button>
       </div>
     </aside>
 
@@ -758,7 +772,7 @@ $('unlockForm').onsubmit=async e=>{
   try{
     await busy(btn,()=>req('/api/knowledge',{headers:{'X-Admin-Key':key}}));
     state.adminKey=key;$('adminKey').value='';toast('Staff portal unlocked');
-    loadStats();route();
+    loadStats();route();maybeTour('staff');
   }catch(err){$('unlockError').textContent=/401|403|invalid/i.test(err.message)?'That admin key isn’t valid.':err.message;$('unlockError').hidden=false}
 };
 $('lockStaff').onclick=()=>{state.adminKey='';toast('Staff portal locked');route()};
@@ -963,7 +977,78 @@ async function loadDemo(){
     $('signInForm').requestSubmit();
   };
   $('useDemoKey').onclick=()=>{$('adminKey').value=d.admin_key;$('unlockForm').requestSubmit()};
+  state.demo=true;
+  const replay=()=>{const staffOpen=!$('staffMain').hidden&&!$('staffApp').hidden;startTour(staffOpen?'staff':'parent')};
+  $('tourBar').onclick=replay;$('tourCard').onclick=replay;
+  if(!/^#\/staff/.test(location.hash))maybeTour('parent');
 }
+
+/* ---------- Guided tour (demo mode only) ---------- */
+const TOURS={
+  parent:[
+    {title:'Welcome to the live demo 👋',text:'This is a fictional school\'s AI assistant. It answers parents only from documents the school has approved, and hands everything else to staff. This short tour shows you where to click.'},
+    {sel:['#welcome .chips'],title:'Start with a sample question',text:'Click any of these. The answer comes straight from the school handbook or fee policy, with its source shown underneath.'},
+    {sel:['#chatForm'],title:'Or ask your own question',text:'Type anything here. Try something the school hasn\'t documented, like "Can my son bring his pet rabbit to show and tell?", and watch it say "I don\'t know" instead of guessing.'},
+    {sel:['#demoSignIn','#demoSignInBar'],title:'Sign in as a demo parent',text:'One click signs you in as Priya, a fictional parent. Then open Policy updates for the new fee policy and My questions for replies from staff.'},
+    {sel:['.side [data-pnav="updates"]','.mobile-nav [data-pnav="updates"]'],title:'Policy updates and replies',text:'Approved school policies appear in Policy updates. Questions the assistant passed to staff, and their answers, are in My questions.'},
+    {sel:['#demoStaff','header a[href="#/staff"]','.mobile-nav a[href="#/staff"]'],title:'Look behind the scenes',text:'Open the staff portal to see the question inbox, knowledge base, policy approvals and conflict checks. It\'s read-only in this demo, so explore freely.'},
+  ],
+  staff:[
+    {sel:['.stats'],title:'The staff dashboard',text:'At a glance: open parent questions, approved answers, uploaded documents and policy drafts waiting for review.'},
+    {sel:['#queue'],title:'Parent questions inbox',text:'Questions the assistant couldn\'t answer land here. Staff assign them and write a verified reply, which the parent then sees in My questions.'},
+    {sel:['.side [data-snav="policies"]','.mobile-nav [data-snav="policies"]'],title:'Policies need approval',text:'New policies start as drafts. Parents only see them after a member of staff approves them, from their effective date.'},
+    {sel:['.side [data-snav="conflicts"]','.mobile-nav [data-snav="conflicts"]'],title:'Conflict checks',text:'Before a policy is approved, older answers on the same topic are flagged here, so parents never get two different answers.'},
+    {sel:['#demoBar'],title:'Read-only demo',text:'Changes are switched off in this public demo. To try uploads, approvals and replies, run the project yourself from GitHub.'},
+  ],
+};
+const tour={name:'',steps:[],i:0,el:{}};
+function tourTarget(step){
+  for(const s of step.sel||[]){const el=document.querySelector(s);if(el&&el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden')return el}
+  return null;
+}
+function tourSeen(name){try{return localStorage.getItem('tourSeen:'+name)==='1'}catch(e){return true}}
+function markTourSeen(name){try{localStorage.setItem('tourSeen:'+name,'1')}catch(e){}}
+function startTour(name){
+  endTour();
+  tour.name=name;tour.steps=TOURS[name].filter(s=>!s.sel||tourTarget(s));tour.i=0;
+  const shade=document.createElement('div');shade.className='tour-shade';
+  const spot=document.createElement('div');spot.className='tour-spot';
+  const tip=document.createElement('div');tip.className='tour-tip';tip.setAttribute('role','dialog');tip.setAttribute('aria-modal','true');tip.setAttribute('aria-labelledby','tourTitle');tip.tabIndex=-1;
+  tip.innerHTML='<div class="tour-dots"></div><h3 id="tourTitle"></h3><p id="tourText"></p><div class="tour-row"><span class="tour-count"></span><button class="btn subtle sm" type="button" data-tour="skip">Skip</button><button class="btn ghost sm" type="button" data-tour="back">Back</button><button class="btn sm" type="button" data-tour="next">Next</button></div>';
+  tip.addEventListener('click',e=>{const a=e.target.closest('[data-tour]')?.dataset.tour;if(a==='skip')endTour();if(a==='back')tourGo(-1);if(a==='next')tourGo(1)});
+  document.body.append(shade,spot,tip);tour.el={shade,spot,tip};
+  markTourSeen(name);showTourStep();
+}
+function tourGo(d){const n=tour.i+d;if(n<0)return;if(n>=tour.steps.length){endTour();return}tour.i=n;showTourStep()}
+function showTourStep(){
+  const {spot,tip}=tour.el;if(!tip)return;
+  const step=tour.steps[tour.i],last=tour.i===tour.steps.length-1;
+  tip.querySelector('#tourTitle').textContent=step.title;tip.querySelector('#tourText').textContent=step.text;
+  tip.querySelector('.tour-count').textContent=(tour.i+1)+' of '+tour.steps.length;
+  tip.querySelector('.tour-dots').innerHTML=tour.steps.map((_,k)=>`<i class="${k===tour.i?'on':''}"></i>`).join('');
+  tip.querySelector('[data-tour="back"]').hidden=tour.i===0;
+  tip.querySelector('[data-tour="next"]').textContent=last?'Got it':'Next';
+  const el=tourTarget(step);
+  if(el)el.scrollIntoView({block:'center'});
+  requestAnimationFrame(()=>{positionTour(el);tip.focus({preventScroll:true})});
+}
+function positionTour(el){
+  const {spot,tip}=tour.el;if(!tip)return;
+  const vw=innerWidth,vh=innerHeight,tw=tip.offsetWidth,th=tip.offsetHeight;
+  if(!el){spot.className='tour-spot center';Object.assign(spot.style,{left:'',top:'',width:'',height:''});
+    Object.assign(tip.style,{left:Math.max(16,(vw-tw)/2)+'px',top:Math.max(16,(vh-th)/2)+'px'});return}
+  const r=el.getBoundingClientRect(),pad=6;
+  spot.className='tour-spot';
+  Object.assign(spot.style,{left:(r.left-pad)+'px',top:(r.top-pad)+'px',width:(r.width+pad*2)+'px',height:(r.height+pad*2)+'px'});
+  let top=r.bottom+pad+12;if(top+th>vh-12)top=r.top-pad-12-th;if(top<12)top=Math.min(vh-th-12,Math.max(12,r.bottom+pad+12));
+  const left=Math.min(vw-tw-16,Math.max(16,r.left+r.width/2-tw/2));
+  Object.assign(tip.style,{left:left+'px',top:top+'px'});
+}
+function endTour(){Object.values(tour.el).forEach(n=>n.remove());tour.el={}}
+addEventListener('resize',()=>tour.el.tip&&positionTour(tourTarget(tour.steps[tour.i])));
+addEventListener('scroll',()=>tour.el.tip&&positionTour(tourTarget(tour.steps[tour.i])),true);
+document.addEventListener('keydown',e=>{if(!tour.el.tip)return;if(e.key==='Escape')endTour();if(e.key==='ArrowRight')tourGo(1);if(e.key==='ArrowLeft')tourGo(-1)});
+function maybeTour(name){if(state.demo&&!tourSeen(name))setTimeout(()=>startTour(name),700)}
 
 loadHealth();loadDemo();restoreParent().finally(route);
 </script>
