@@ -1,5 +1,9 @@
 # AI School Parent Communication Assistant — RAG MVP
 
+
+![README hits](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2Frajuerladinny%2Fai-school-parent-assistant&label=README%20Hits&icon=github&color=%230a58ca)
+
+
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
